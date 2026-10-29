@@ -679,6 +679,46 @@ export const CreatePost: React.FC<CreatePostProps> = ({
               </div>
             )}
           </div>
+
+          <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap' }}>
+              Or Public Image URL:
+            </span>
+            <input
+              type="url"
+              placeholder="https://images.unsplash.com/photo-... or https://example.com/image.jpg"
+              value={mediaUrl && !mediaUrl.startsWith('data:') ? mediaUrl : ''}
+              onChange={(e) => {
+                setUploadError(null);
+                const val = e.target.value.trim();
+                setMediaUrl(val ? val : null);
+              }}
+              style={{
+                flex: 1,
+                padding: '0.4rem 0.65rem',
+                fontSize: '0.75rem',
+                borderRadius: '0.5rem',
+                border: '1px solid #cbd5e1',
+                outline: 'none',
+                background: '#ffffff',
+                color: '#1e293b'
+              }}
+            />
+          </div>
+
+          {selectedPlatforms.includes('instagram') && (
+            <div style={{
+              marginTop: '0.5rem',
+              fontSize: '0.72rem',
+              color: '#d97706',
+              background: '#fffbeb',
+              padding: '0.4rem 0.6rem',
+              borderRadius: '0.375rem',
+              border: '1px solid #fef3c7'
+            }}>
+              📸 <strong>Instagram Requirement:</strong> Meta's Instagram Graph API requires an image hosted on a publicly accessible HTTP/HTTPS URL (e.g. Unsplash, Imgur, Cloudinary). Local browser file uploads (data: URLs) cannot be downloaded by Meta.
+            </div>
+          )}
         </div>
 
         <div className="create-post-actions">
