@@ -63,18 +63,30 @@ export const Platforms: React.FC<PlatformsProps> = ({
 
   // Credentials State for Meta Platforms
   const [platformCredentials, setPlatformCredentials] = useState<Record<string, PlatformCreds>>(() => {
+    const defaults = {
+      facebook: { appId: '2231204290777395', appSecret: '', pageId: '', accessToken: '', showSecret: false },
+      instagram: { appId: '', appSecret: '', pageId: '', accessToken: '', showSecret: false }
+    };
     const saved = localStorage.getItem('omnipulse_meta_credentials');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          facebook: {
+            ...defaults.facebook,
+            ...(parsed.facebook || {}),
+            appId: (parsed.facebook?.appId && parsed.facebook.appId.trim()) ? parsed.facebook.appId : '2231204290777395'
+          },
+          instagram: {
+            ...defaults.instagram,
+            ...(parsed.instagram || {})
+          }
+        };
       } catch {
-        // Fallback
+        // Fallback to defaults
       }
     }
-    return {
-      facebook: { appId: '', appSecret: '', pageId: '', accessToken: '', showSecret: false },
-      instagram: { appId: '', appSecret: '', pageId: '', accessToken: '', showSecret: false }
-    };
+    return defaults;
   });
 
   // Sync credentials with localStorage
