@@ -44,11 +44,22 @@ async def publish_post_endpoint(payload: PublishRequest):
             except Exception as e:
                 logger.error(f"Failed to fetch post {payload.post_id}: {e}")
 
+    # Fallback to direct payload content for stateless serverless resiliency
     if not post_data:
-        raise HTTPException(status_code=404, detail=f"Post with ID {payload.post_id} not found.")
+        if payload.content is not None:
+            post_data = {
+                "id": payload.post_id,
+                "content": payload.content,
+                "media_url": payload.media_url,
+                "status": "pending",
+            }
+            _MEMORY_POSTS[payload.post_id] = post_data
+            _MEMORY_POSTS[db_id] = post_data
+        else:
+            raise HTTPException(status_code=404, detail=f"Post with ID {payload.post_id} not found.")
 
-    content = post_data.get("content", "")
-    media_url = post_data.get("media_url")
+    content = payload.content if payload.content is not None else post_data.get("content", "")
+    media_url = payload.media_url if payload.media_url is not None else post_data.get("media_url")
 
     results: List[PlatformResult] = []
     any_success = False

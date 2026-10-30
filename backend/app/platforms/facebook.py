@@ -81,6 +81,10 @@ class FacebookAdapter(BasePlatformAdapter):
                 error_message="Missing FACEBOOK_PAGE_ID in backend/.env",
             )
 
+        # Resolve relative public URLs into fully qualified public HTTPS URLs
+        if media_url and media_url.startswith("/"):
+            media_url = f"https://ai-social-media-agent-phi.vercel.app{media_url}"
+
         import base64
 
         async with httpx.AsyncClient(timeout=20.0) as client:

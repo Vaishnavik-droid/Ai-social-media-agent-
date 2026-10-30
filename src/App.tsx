@@ -325,7 +325,7 @@ export const App: React.FC = () => {
     // Persist durably to Supabase via FastAPI and trigger publish if published
     api.savePost(newPost).then(() => {
       if (newPost.status === 'published') {
-        api.publishPost(newPost.id, newPost.platforms).then((res) => {
+        api.publishPost(newPost.id, newPost.platforms, true, newPost.content, newPost.mediaUrl).then((res) => {
           if (res.success) {
             showToast('Post published across all channels!');
           } else {
@@ -387,7 +387,7 @@ export const App: React.FC = () => {
     );
     const postItem = posts.find((p) => p.id === id);
     if (postItem) {
-      api.publishPost(postItem.id, postItem.platforms).then((res) => {
+      api.publishPost(postItem.id, postItem.platforms, true, postItem.content, postItem.mediaUrl).then((res) => {
         if (res.success) {
           showToast('Post published live via FastAPI backend!');
         } else {

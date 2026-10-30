@@ -26,6 +26,9 @@ class BlueskyAdapter(BasePlatformAdapter):
         if not media_url:
             return None, None
         try:
+            if media_url.startswith("/"):
+                media_url = f"https://ai-social-media-agent-phi.vercel.app{media_url}"
+
             if media_url.startswith("data:"):
                 # Handle base64 data URI (e.g., from browser image uploads)
                 header, data = media_url.split(",", 1)

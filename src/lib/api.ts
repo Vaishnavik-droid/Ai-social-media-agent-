@@ -215,7 +215,9 @@ export const api = {
   async publishPost(
     postId: string,
     platforms: Platform[],
-    publishNow: boolean = true
+    publishNow: boolean = true,
+    content?: string,
+    mediaUrl?: string
   ): Promise<PublishResult> {
     return fetchWithAuth('/api/v1/publishing/publish', {
       method: 'POST',
@@ -223,6 +225,8 @@ export const api = {
         post_id: postId,
         platforms,
         publish_now: publishNow,
+        content: content || undefined,
+        media_url: mediaUrl || undefined,
       }),
     });
   },

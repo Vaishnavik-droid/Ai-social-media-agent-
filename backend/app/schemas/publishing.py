@@ -17,6 +17,8 @@ class PublishRequest(BaseModel):
     publish_now: bool = True
     scheduled_at: Optional[str] = None
     dry_run: bool = Field(False, description="If True, performs validation and simulated publish without external dispatch")
+    content: Optional[str] = None
+    media_url: Optional[str] = None
 
 
 class PublishResponse(BaseModel):

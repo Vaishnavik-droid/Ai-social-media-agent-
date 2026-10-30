@@ -80,6 +80,10 @@ class InstagramAdapter(BasePlatformAdapter):
                 error_message="Missing META_USER_TOKEN or FACEBOOK_PAGE_ACCESS_TOKEN in backend/.env",
             )
 
+        # Resolve relative public URLs into fully qualified public HTTPS URLs
+        if media_url and media_url.startswith("/"):
+            media_url = f"https://ai-social-media-agent-phi.vercel.app{media_url}"
+
         # Instagram Content Publishing API requires a public media URL
         if not media_url:
             return PlatformResult(

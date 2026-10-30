@@ -343,7 +343,13 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       }
 
       // Step 2: Publish to selected platforms via FastAPI
-      const publishRes = await api.publishPost(savedPost.id, selectedPlatforms, true);
+      const publishRes = await api.publishPost(
+        savedPost.id,
+        selectedPlatforms,
+        true,
+        savedPost.content || postBody,
+        savedPost.mediaUrl || mediaUrl || undefined
+      );
 
       // Step 3: Show results
       const results = publishRes.results.map((r) => ({
