@@ -28,11 +28,15 @@ import { supabase, testSupabaseConnection } from '../lib/supabase';
 interface AuthProps {
   onLoginSuccess: (user: UserProfile) => void;
   initialMode?: 'login' | 'signup';
+  onNavigatePrivacy?: () => void;
+  onNavigateTerms?: () => void;
 }
 
 export const Auth: React.FC<AuthProps> = ({
   onLoginSuccess,
-  initialMode = 'login'
+  initialMode = 'login',
+  onNavigatePrivacy,
+  onNavigateTerms,
 }) => {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>(initialMode);
   const [showPassword, setShowPassword] = useState(false);
@@ -696,6 +700,25 @@ export const Auth: React.FC<AuthProps> = ({
                     Create one now
                   </button>
                 </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-700/50 text-center text-[11px] text-slate-400">
+                  By continuing, you agree to OmniPulse's{' '}
+                  <button
+                    type="button"
+                    onClick={onNavigateTerms || (() => { window.location.href = '/terms'; })}
+                    className="text-violet-400 hover:underline font-medium"
+                  >
+                    Terms of Service
+                  </button>{' '}
+                  and{' '}
+                  <button
+                    type="button"
+                    onClick={onNavigatePrivacy || (() => { window.location.href = '/privacy'; })}
+                    className="text-violet-400 hover:underline font-medium"
+                  >
+                    Privacy Policy
+                  </button>.
+                </div>
               </form>
             )}
 
@@ -926,6 +949,25 @@ export const Auth: React.FC<AuthProps> = ({
                   >
                     Sign in here
                   </button>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-700/50 text-center text-[11px] text-slate-400">
+                  By creating an account, you agree to OmniPulse's{' '}
+                  <button
+                    type="button"
+                    onClick={onNavigateTerms || (() => { window.location.href = '/terms'; })}
+                    className="text-violet-400 hover:underline font-medium"
+                  >
+                    Terms of Service
+                  </button>{' '}
+                  and{' '}
+                  <button
+                    type="button"
+                    onClick={onNavigatePrivacy || (() => { window.location.href = '/privacy'; })}
+                    className="text-violet-400 hover:underline font-medium"
+                  >
+                    Privacy Policy
+                  </button>.
                 </div>
               </form>
             )}

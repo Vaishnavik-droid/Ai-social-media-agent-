@@ -17,7 +17,10 @@ export type NavPage =
   | 'posts'
   | 'scheduled'
   | 'platforms'
-  | 'settings';
+  | 'settings'
+  | 'privacy'
+  | 'terms'
+  | 'data-deletion';
 
 interface SidebarProps {
   currentPage: NavPage;
@@ -121,6 +124,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <span className="sidebar-nav-icon"><Settings size={16} strokeWidth={2} /></span>
               <span>Settings</span>
+            </button>
+          </div>
+
+          {/* Legal Compliance Quick Links */}
+          <div className="mt-3 pt-2 px-3 flex items-center justify-between text-[11px] text-slate-400">
+            <button
+              type="button"
+              onClick={() => {
+                onNavigate('privacy');
+                if (onCloseMobile) onCloseMobile();
+              }}
+              className="hover:text-slate-200 transition-colors"
+            >
+              Privacy Policy
+            </button>
+            <span>&bull;</span>
+            <button
+              type="button"
+              onClick={() => {
+                onNavigate('terms');
+                if (onCloseMobile) onCloseMobile();
+              }}
+              className="hover:text-slate-200 transition-colors"
+            >
+              Terms of Service
             </button>
           </div>
         </nav>

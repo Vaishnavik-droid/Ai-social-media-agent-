@@ -8,6 +8,9 @@ import { Scheduled } from './pages/Scheduled';
 import { Platforms } from './pages/Platforms';
 import { Settings } from './pages/Settings';
 import { Auth } from './pages/Auth';
+import { PrivacyPolicy } from './pages/PrivacyPolicy';
+import { TermsOfService } from './pages/TermsOfService';
+import { DataDeletion } from './pages/DataDeletion';
 import {
   mockPosts,
   mockConnectedPlatforms,
@@ -29,8 +32,57 @@ import {
 import { supabase } from './lib/supabase';
 import { api } from './lib/api';
 
+// Helper to determine active page from URL path or hash (crucial for Meta verification crawler)
+const getPageFromUrl = (): NavPage | null => {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname.toLowerCase();
+  const hash = window.location.hash.toLowerCase();
+
+  if (path === '/privacy' || path === '/privacy-policy' || hash.includes('privacy')) {
+    return 'privacy';
+  }
+  if (path === '/terms' || path === '/terms-of-service' || hash.includes('terms')) {
+    return 'terms';
+  }
+  if (path === '/data-deletion' || path === '/user-data-deletion' || hash.includes('data-deletion')) {
+    return 'data-deletion';
+  }
+  return null;
+};
+
 export const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<NavPage>('dashboard');
+  const [currentPage, setCurrentPage] = useState<NavPage>(() => {
+    return getPageFromUrl() || 'dashboard';
+  });
+
+  // Keep browser URL pathname synchronized
+  const navigateTo = (page: NavPage) => {
+    setCurrentPage(page);
+    let targetPath = '/';
+    if (page === 'privacy') targetPath = '/privacy';
+    else if (page === 'terms') targetPath = '/terms';
+    else if (page === 'data-deletion') targetPath = '/data-deletion';
+
+    if (window.location.pathname !== targetPath && (page === 'privacy' || page === 'terms' || page === 'data-deletion')) {
+      window.history.pushState(null, '', targetPath);
+    } else if (window.location.pathname !== '/' && (page !== 'privacy' && page !== 'terms' && page !== 'data-deletion')) {
+      window.history.pushState(null, '', '/');
+    }
+  };
+
+  // Listen to browser forward/back buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const page = getPageFromUrl();
+      if (page) {
+        setCurrentPage(page);
+      } else {
+        setCurrentPage('dashboard');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -432,17 +484,67 @@ export const App: React.FC = () => {
           title: 'Settings',
           subtitle: 'Manage your account and preferences'
         };
+      case 'privacy':
+        return {
+          title: 'Privacy Policy',
+          subtitle: 'Meta & Multi-Platform Data Handling Policy'
+        };
+      case 'terms':
+        return {
+          title: 'Terms of Service',
+          subtitle: 'Platform usage agreement and acceptable use rules'
+        };
+      case 'data-deletion':
+        return {
+          title: 'Data Deletion Instructions',
+          subtitle: 'Meta user data deletion instructions and compliance'
+        };
     }
   };
 
   const pageInfo = getPageInfo();
+
+  // Public Unauthenticated Routes (Meta App Verification requires public access to Privacy, Terms, and Data Deletion)
+  if (currentPage === 'privacy') {
+    return (
+      <PrivacyPolicy
+        onBack={() => navigateTo('dashboard')}
+        onNavigateTerms={() => navigateTo('terms')}
+        onNavigateDataDeletion={() => navigateTo('data-deletion')}
+      />
+    );
+  }
+
+  if (currentPage === 'terms') {
+    return (
+      <TermsOfService
+        onBack={() => navigateTo('dashboard')}
+        onNavigatePrivacy={() => navigateTo('privacy')}
+        onNavigateDataDeletion={() => navigateTo('data-deletion')}
+      />
+    );
+  }
+
+  if (currentPage === 'data-deletion') {
+    return (
+      <DataDeletion
+        onBack={() => navigateTo('dashboard')}
+        onNavigatePrivacy={() => navigateTo('privacy')}
+        onNavigateTerms={() => navigateTo('terms')}
+      />
+    );
+  }
 
   // If user is not authenticated, display the Login & Sign Up page
   if (!isAuthenticated) {
     return (
       <>
         <div className="auth-root-wrapper">
-          <Auth onLoginSuccess={handleLoginSuccess} />
+          <Auth
+            onLoginSuccess={handleLoginSuccess}
+            onNavigatePrivacy={() => navigateTo('privacy')}
+            onNavigateTerms={() => navigateTo('terms')}
+          />
         </div>
         {toastMessage && (
           <div className="app-toast-pill" role="status" aria-live="polite">
@@ -460,7 +562,7 @@ export const App: React.FC = () => {
         {/* Dark Sidebar matching screenshots */}
         <Sidebar
           currentPage={currentPage}
-          onNavigate={setCurrentPage}
+          onNavigate={navigateTo}
           user={user}
           isMobileOpen={isMobileOpen}
           onCloseMobile={() => setIsMobileOpen(false)}
@@ -477,7 +579,7 @@ export const App: React.FC = () => {
           notifications={notifications}
           onMarkNotificationsRead={handleMarkNotificationsRead}
           onOpenMobileMenu={() => setIsMobileOpen(true)}
-          onNavigateToSettings={() => setCurrentPage('settings')}
+          onNavigateToSettings={() => navigateTo('settings')}
           onLogout={handleLogout}
         />
 
@@ -487,7 +589,7 @@ export const App: React.FC = () => {
             <Dashboard
               metrics={mockMetrics}
               posts={posts}
-              onNavigate={setCurrentPage}
+              onNavigate={navigateTo}
               onPublishNow={handlePublishNow}
               onDeletePost={handleDeletePost}
             />
@@ -498,14 +600,14 @@ export const App: React.FC = () => {
               user={user}
               preferences={preferences}
               onPostCreated={handlePostCreated}
-              onNavigate={setCurrentPage}
+              onNavigate={navigateTo}
             />
           )}
 
           {currentPage === 'posts' && (
             <Posts
               posts={posts}
-              onNavigate={setCurrentPage}
+              onNavigate={navigateTo}
               onPublishNow={handlePublishNow}
               onDeletePost={handleDeletePost}
               onSchedulePost={handleSchedulePost}
@@ -515,7 +617,7 @@ export const App: React.FC = () => {
           {currentPage === 'scheduled' && (
             <Scheduled
               posts={posts}
-              onNavigate={setCurrentPage}
+              onNavigate={navigateTo}
               onPublishNow={handlePublishNow}
               onCancelSchedule={handleCancelSchedule}
               onDeletePost={handleDeletePost}
@@ -539,6 +641,7 @@ export const App: React.FC = () => {
               onUpdatePreferences={setPreferences}
               onUpdateNotifications={setNotificationsSettings}
               onLogout={handleLogout}
+              onNavigate={navigateTo}
             />
           )}
         </main>

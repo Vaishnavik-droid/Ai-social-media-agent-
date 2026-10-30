@@ -14,6 +14,7 @@ interface SettingsProps {
   onUpdatePreferences: (pref: UserPreferences) => void;
   onUpdateNotifications: (notif: UserNotifications) => void;
   onLogout?: () => void;
+  onNavigate?: (page: any) => void;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
@@ -23,9 +24,10 @@ export const Settings: React.FC<SettingsProps> = ({
   onUpdateUser,
   onUpdatePreferences,
   onUpdateNotifications,
-  onLogout
+  onLogout,
+  onNavigate,
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'notifications'>(
+  const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'notifications' | 'legal'>(
     'profile'
   );
 
@@ -99,6 +101,15 @@ export const Settings: React.FC<SettingsProps> = ({
           >
             <Bell size={14} />
             <span>Notifications</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('legal')}
+            className={`settings-nav-item ${activeTab === 'legal' ? 'active' : ''}`}
+          >
+            <ShieldCheck size={14} />
+            <span>Legal &amp; Meta Compliance</span>
           </button>
         </nav>
 
@@ -320,6 +331,128 @@ export const Settings: React.FC<SettingsProps> = ({
                 )}
               </div>
             </form>
+          )}
+
+          {activeTab === 'legal' && (
+            <div className="settings-form">
+              <h2 className="settings-section-title">Legal &amp; Meta Compliance</h2>
+              <p className="settings-section-copy">
+                Review verified legal documentation, privacy safeguards, and user data deletion procedures required for Meta (Facebook &amp; Instagram) app verification.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '20px' }}>
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0',
+                  background: '#f8fafc',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px'
+                }}>
+                  <div>
+                    <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>
+                      Privacy Policy
+                    </h3>
+                    <p style={{ fontSize: '12px', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+                      Explains our data handling, Meta Graph API permissions, token security, and GDPR/CCPA protections.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate ? onNavigate('privacy') : window.location.href = '/privacy'}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#6d4aff',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    View Policy &rarr;
+                  </button>
+                </div>
+
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0',
+                  background: '#f8fafc',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px'
+                }}>
+                  <div>
+                    <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>
+                      Terms of Service
+                    </h3>
+                    <p style={{ fontSize: '12px', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+                      Terms of use, Meta Platform Terms compliance, acceptable use rules, and AI generation disclaimers.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate ? onNavigate('terms') : window.location.href = '/terms'}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#6d4aff',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    View Terms &rarr;
+                  </button>
+                </div>
+
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: '1px solid #fde68a',
+                  background: '#fffbeb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px'
+                }}>
+                  <div>
+                    <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#92400e', margin: '0 0 4px' }}>
+                      Meta User Data Deletion Instructions
+                    </h3>
+                    <p style={{ fontSize: '12px', color: '#b45309', margin: 0, lineHeight: 1.5 }}>
+                      Step-by-step instructions on revoking Facebook permissions or requesting complete data erasure.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate ? onNavigate('data-deletion') : window.location.href = '/data-deletion'}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      background: '#f59e0b',
+                      border: 'none',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#ffffff',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    Data Deletion Steps &rarr;
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>
