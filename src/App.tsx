@@ -544,6 +544,7 @@ export const App: React.FC = () => {
             onLoginSuccess={handleLoginSuccess}
             onNavigatePrivacy={() => navigateTo('privacy')}
             onNavigateTerms={() => navigateTo('terms')}
+            onNavigateDataDeletion={() => navigateTo('data-deletion')}
           />
         </div>
         {toastMessage && (

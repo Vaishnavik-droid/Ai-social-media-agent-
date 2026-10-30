@@ -404,20 +404,20 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
 
               <div className="legal-contact-card">
                 <div className="legal-contact-item">
-                  <Mail size={16} className="text-violet-500" />
+                  <Mail size={18} className="legal-contact-icon-violet" />
                   <div>
-                    <span className="block text-xs font-semibold text-slate-500">Privacy &amp; Data Compliance</span>
-                    <a href="mailto:privacy@omnipulse.ai" className="text-sm font-medium text-violet-600 hover:underline">
+                    <span className="legal-contact-label">Privacy &amp; Data Compliance</span>
+                    <a href="mailto:privacy@omnipulse.ai" className="legal-contact-value">
                       privacy@omnipulse.ai
                     </a>
                   </div>
                 </div>
 
                 <div className="legal-contact-item">
-                  <ShieldCheck size={16} className="text-emerald-500" />
+                  <ShieldCheck size={18} className="legal-contact-icon-emerald" />
                   <div>
-                    <span className="block text-xs font-semibold text-slate-500">Technical Support &amp; Verification</span>
-                    <a href="mailto:support@omnipulse.ai" className="text-sm font-medium text-violet-600 hover:underline">
+                    <span className="legal-contact-label">Technical Support &amp; Verification</span>
+                    <a href="mailto:support@omnipulse.ai" className="legal-contact-value">
                       support@omnipulse.ai
                     </a>
                   </div>

@@ -207,7 +207,7 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
                     href="https://developers.facebook.com/terms/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-violet-600 font-semibold underline inline-flex items-center gap-1"
+                    className="legal-external-link"
                   >
                     Meta Platform Terms <ExternalLink size={12} />
                   </a>
@@ -217,7 +217,7 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
                     href="https://help.instagram.com/477434105621119"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-violet-600 font-semibold underline inline-flex items-center gap-1"
+                    className="legal-external-link"
                   >
                     Instagram Community Guidelines <ExternalLink size={12} />
                   </a>
@@ -227,7 +227,7 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
                     href="https://www.facebook.com/page_guidelines.php"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-violet-600 font-semibold underline inline-flex items-center gap-1"
+                    className="legal-external-link"
                   >
                     Facebook Pages and Groups Policy <ExternalLink size={12} />
                   </a>
@@ -250,7 +250,7 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
               <p>
                 When creating an OmniPulse account, you must provide accurate, complete, and current information.
                 You are responsible for safeguarding your login credentials. If you suspect any unauthorized access,
-                you must notify us immediately at <a href="mailto:security@omnipulse.ai" className="text-violet-600 underline">security@omnipulse.ai</a>.
+                you must notify us immediately at <a href="mailto:security@omnipulse.ai" className="legal-link">security@omnipulse.ai</a>.
               </p>
             </section>
 
@@ -315,7 +315,7 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
               <h2 className="legal-section-title">9. Account Termination</h2>
               <p>
                 You may close your account and delete your data at any time via the OmniPulse dashboard or by emailing{' '}
-                <a href="mailto:support@omnipulse.ai" className="text-violet-600 underline">support@omnipulse.ai</a>.
+                <a href="mailto:support@omnipulse.ai" className="legal-link">support@omnipulse.ai</a>.
               </p>
               <p>
                 We reserve the right to suspend or terminate accounts that breach these Terms, Meta Platform Terms, or applicable laws,
@@ -340,21 +340,21 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
                 These Terms shall be governed by and construed in accordance with the laws of the jurisdiction in which OmniPulse operates,
                 without regard to its conflict of law principles.
               </p>
-              <div className="legal-contact-card mt-4">
+              <div className="legal-contact-card">
                 <div className="legal-contact-item">
-                  <Scale size={16} className="text-violet-500" />
+                  <Scale size={18} className="legal-contact-icon-violet" />
                   <div>
-                    <span className="block text-xs font-semibold text-slate-500">Legal Inquiries</span>
-                    <a href="mailto:legal@omnipulse.ai" className="text-sm font-medium text-violet-600 hover:underline">
+                    <span className="legal-contact-label">Legal Inquiries</span>
+                    <a href="mailto:legal@omnipulse.ai" className="legal-contact-value">
                       legal@omnipulse.ai
                     </a>
                   </div>
                 </div>
                 <div className="legal-contact-item">
-                  <CheckCircle2 size={16} className="text-emerald-500" />
+                  <CheckCircle2 size={18} className="legal-contact-icon-emerald" />
                   <div>
-                    <span className="block text-xs font-semibold text-slate-500">General Support</span>
-                    <a href="mailto:support@omnipulse.ai" className="text-sm font-medium text-violet-600 hover:underline">
+                    <span className="legal-contact-label">General Support</span>
+                    <a href="mailto:support@omnipulse.ai" className="legal-contact-value">
                       support@omnipulse.ai
                     </a>
                   </div>

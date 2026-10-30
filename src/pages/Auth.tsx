@@ -30,6 +30,7 @@ interface AuthProps {
   initialMode?: 'login' | 'signup';
   onNavigatePrivacy?: () => void;
   onNavigateTerms?: () => void;
+  onNavigateDataDeletion?: () => void;
 }
 
 export const Auth: React.FC<AuthProps> = ({
@@ -37,6 +38,7 @@ export const Auth: React.FC<AuthProps> = ({
   initialMode = 'login',
   onNavigatePrivacy,
   onNavigateTerms,
+  onNavigateDataDeletion,
 }) => {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>(initialMode);
   const [showPassword, setShowPassword] = useState(false);
@@ -701,23 +703,24 @@ export const Auth: React.FC<AuthProps> = ({
                   </button>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-700/50 text-center text-[11px] text-slate-400">
-                  By continuing, you agree to OmniPulse's{' '}
+                <div className="auth-legal-consent">
+                  <span>By continuing, you agree to OmniPulse&apos;s </span>
                   <button
                     type="button"
                     onClick={onNavigateTerms || (() => { window.location.href = '/terms'; })}
-                    className="text-violet-400 hover:underline font-medium"
+                    className="auth-legal-link"
                   >
                     Terms of Service
-                  </button>{' '}
-                  and{' '}
+                  </button>
+                  <span> and </span>
                   <button
                     type="button"
                     onClick={onNavigatePrivacy || (() => { window.location.href = '/privacy'; })}
-                    className="text-violet-400 hover:underline font-medium"
+                    className="auth-legal-link"
                   >
                     Privacy Policy
-                  </button>.
+                  </button>
+                  <span>.</span>
                 </div>
               </form>
             )}
@@ -915,8 +918,30 @@ export const Auth: React.FC<AuthProps> = ({
                       required
                     />
                     <span>
-                      I agree to the <span className="auth-highlight-text">Terms of Service</span> and{' '}
-                      <span className="auth-highlight-text">Privacy Policy</span>
+                      I agree to the{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onNavigateTerms) onNavigateTerms();
+                          else window.location.href = '/terms';
+                        }}
+                        className="auth-legal-link"
+                      >
+                        Terms of Service
+                      </button>
+                      {' '}and{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onNavigatePrivacy) onNavigatePrivacy();
+                          else window.location.href = '/privacy';
+                        }}
+                        className="auth-legal-link"
+                      >
+                        Privacy Policy
+                      </button>
                     </span>
                   </label>
                 </div>
@@ -951,23 +976,24 @@ export const Auth: React.FC<AuthProps> = ({
                   </button>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-700/50 text-center text-[11px] text-slate-400">
-                  By creating an account, you agree to OmniPulse's{' '}
+                <div className="auth-legal-consent">
+                  <span>By creating an account, you agree to OmniPulse&apos;s </span>
                   <button
                     type="button"
                     onClick={onNavigateTerms || (() => { window.location.href = '/terms'; })}
-                    className="text-violet-400 hover:underline font-medium"
+                    className="auth-legal-link"
                   >
                     Terms of Service
-                  </button>{' '}
-                  and{' '}
+                  </button>
+                  <span> and </span>
                   <button
                     type="button"
                     onClick={onNavigatePrivacy || (() => { window.location.href = '/privacy'; })}
-                    className="text-violet-400 hover:underline font-medium"
+                    className="auth-legal-link"
                   >
                     Privacy Policy
-                  </button>.
+                  </button>
+                  <span>.</span>
                 </div>
               </form>
             )}
@@ -1054,6 +1080,49 @@ export const Auth: React.FC<AuthProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Dedicated Global Login Screen Footer */}
+      <footer className="auth-screen-footer">
+        <div className="auth-screen-footer-inner">
+          <div className="auth-screen-footer-copy">
+            <span>&copy; {new Date().getFullYear()} OmniPulse AI Technologies, Inc. All rights reserved.</span>
+            <span className="auth-footer-badge">Meta Graph API Verified</span>
+          </div>
+
+          <nav className="auth-screen-footer-nav" aria-label="Legal & Support">
+            <button
+              type="button"
+              onClick={onNavigateTerms || (() => { window.location.href = '/terms'; })}
+              className="auth-screen-footer-link"
+            >
+              Terms of Service
+            </button>
+            <span className="auth-screen-footer-dot" aria-hidden="true">&bull;</span>
+            <button
+              type="button"
+              onClick={onNavigatePrivacy || (() => { window.location.href = '/privacy'; })}
+              className="auth-screen-footer-link"
+            >
+              Privacy Policy
+            </button>
+            <span className="auth-screen-footer-dot" aria-hidden="true">&bull;</span>
+            <button
+              type="button"
+              onClick={onNavigateDataDeletion || (() => { window.location.href = '/data-deletion'; })}
+              className="auth-screen-footer-link"
+            >
+              User Data Deletion
+            </button>
+            <span className="auth-screen-footer-dot" aria-hidden="true">&bull;</span>
+            <a
+              href="mailto:support@omnipulse.ai"
+              className="auth-screen-footer-link"
+            >
+              Contact Support
+            </a>
+          </nav>
+        </div>
+      </footer>
     </div>
   );
 };
