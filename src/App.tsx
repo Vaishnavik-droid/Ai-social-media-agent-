@@ -40,11 +40,11 @@ export const App: React.FC = () => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         const metadata = session.user.user_metadata || {};
-        const fullName = metadata.full_name || session.user.email?.split('@')[0] || 'Rushikesh Chavan';
+        const fullName = metadata.full_name || session.user.email?.split('@')[0] || 'John Doe';
         setUser({
           name: fullName,
           email: session.user.email || 'user@pulse.ai',
-          avatarChar: fullName.charAt(0).toUpperCase() || 'R',
+          avatarChar: fullName.charAt(0).toUpperCase() || 'J',
           brandName: metadata.brand_name || 'OmniPulse Media',
           role: metadata.goal === 'agency' ? 'Agency Lead' : metadata.goal === 'creator' ? 'Pro Creator' : 'Growth Strategist'
         });
@@ -55,11 +55,11 @@ export const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         const metadata = session.user.user_metadata || {};
-        const fullName = metadata.full_name || session.user.email?.split('@')[0] || 'Rushikesh Chavan';
+        const fullName = metadata.full_name || session.user.email?.split('@')[0] || 'John Doe';
         setUser({
           name: fullName,
           email: session.user.email || 'user@pulse.ai',
-          avatarChar: fullName.charAt(0).toUpperCase() || 'R',
+          avatarChar: fullName.charAt(0).toUpperCase() || 'J',
           brandName: metadata.brand_name || 'OmniPulse Media',
           role: metadata.goal === 'agency' ? 'Agency Lead' : metadata.goal === 'creator' ? 'Pro Creator' : 'Growth Strategist'
         });

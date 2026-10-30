@@ -9,9 +9,9 @@ import {
 } from '../types';
 
 export const mockUserProfile: UserProfile = {
-  name: 'Rushikesh Chavan',
-  email: 'user@gmail.com',
-  avatarChar: 'R'
+  name: 'John Doe',
+  email: 'user@example.com',
+  avatarChar: 'J'
 };
 
 export const mockMetrics: MetricSummary = {
@@ -174,16 +174,16 @@ export const mockConnectedPlatforms: ConnectedPlatform[] = [
   {
     id: 'linkedin',
     name: 'LinkedIn',
-    handle: 'Rushikesh Chavan',
+    handle: 'John Doe',
     status: 'connected',
-    connectedUser: 'Rushikesh Chavan'
+    connectedUser: 'John Doe'
   },
   {
     id: 'instagram',
     name: 'Instagram',
-    handle: '@rushikeshchavan',
+    handle: '@johndoe',
     status: 'connected',
-    connectedUser: '@rushikeshchavan'
+    connectedUser: '@johndoe'
   },
   {
     id: 'facebook',

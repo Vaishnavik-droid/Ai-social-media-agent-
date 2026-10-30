@@ -718,7 +718,7 @@ export const Auth: React.FC<AuthProps> = ({
                       type="text"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      placeholder="e.g. Rushikesh Chavan"
+                      placeholder="e.g. John Doe / Jane Doe"
                       required
                       className="auth-input"
                     />

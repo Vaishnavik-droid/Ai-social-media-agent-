@@ -47,6 +47,7 @@ app = FastAPI(
     description="Backend orchestration, Groq LLM service, Supabase persistence, and social publishing adapters.",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # CORS Configuration
@@ -65,12 +66,14 @@ app.add_middleware(
 )
 
 # Root Health & Documentation Checks
-app.include_router(health_router)
-app.include_router(health_router, prefix="/api")
+for h_prefix in ["", "/api", "/api/v1", "/v1"]:
+    app.include_router(health_router, prefix=h_prefix)
 
-# Vercel Cron direct hook
+# Vercel Cron hooks (accessible with and without /api prefix)
 @app.get("/api/cron/process-schedules")
 @app.post("/api/cron/process-schedules")
+@app.get("/cron/process-schedules")
+@app.post("/cron/process-schedules")
 async def vercel_cron_endpoint(
     authorization: Optional[str] = Header(None),
     cron_token: Optional[str] = Query(None, alias="key"),
@@ -98,21 +101,13 @@ async def vercel_cron_endpoint(
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
-# API Endpoints (mounted under both /api and /api/v1 for unified routing)
-app.include_router(generation_router, prefix="/api/v1")
-app.include_router(generation_router, prefix="/api")
-
-app.include_router(posts_router, prefix="/api/v1")
-app.include_router(posts_router, prefix="/api")
-
-app.include_router(publishing_router, prefix="/api/v1")
-app.include_router(publishing_router, prefix="/api")
-
-app.include_router(connections_router, prefix="/api/v1")
-app.include_router(connections_router, prefix="/api")
-
-app.include_router(scheduling_router, prefix="/api/v1")
-app.include_router(scheduling_router, prefix="/api")
+# API Endpoints (mounted under /api/v1, /api, /v1, and root for unified zero-404 routing)
+for api_prefix in ["/api/v1", "/api", "/v1", ""]:
+    app.include_router(generation_router, prefix=api_prefix)
+    app.include_router(posts_router, prefix=api_prefix)
+    app.include_router(publishing_router, prefix=api_prefix)
+    app.include_router(connections_router, prefix=api_prefix)
+    app.include_router(scheduling_router, prefix=api_prefix)
 
 
 @app.get("/")

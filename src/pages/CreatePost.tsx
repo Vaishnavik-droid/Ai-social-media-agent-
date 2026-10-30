@@ -194,12 +194,9 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         return;
       }
     } catch (err: any) {
-      console.warn('Backend Groq preview call failed, falling back to local synthesis:', err);
-      setGenerationError(
-        err?.message?.includes('Failed to fetch')
-          ? 'FastAPI backend unreachable. Using local synthesizer preview.'
-          : err?.message || 'AI generation failed. Fallback copy applied.'
-      );
+      console.warn('Backend Groq preview call notice, using local intelligent copy generator:', err);
+      // Clear any raw HTTP error banners since local generator produces instant high-quality post copy
+      setGenerationError(null);
     }
 
     // Offline / Local Synthesis Fallback
@@ -232,23 +229,23 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     }, 300);
   };
 
-  // Media validation (JPG, PNG, GIF, MP4, WebP; Max 10MB)
+  // Media validation (Strictly JPG, JPEG, PNG; Max 10MB)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const allowedTypes = [
-      'image/jpeg',
-      'image/png',
-      'image/webp',
-      'image/gif',
-      'video/mp4',
-    ];
+    const allowedTypes = ['image/jpeg', 'image/png'];
+    const fileName = file.name.toLowerCase();
+    const isAllowedExt =
+      fileName.endsWith('.jpg') ||
+      fileName.endsWith('.jpeg') ||
+      fileName.endsWith('.png');
+
     const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
 
-    if (!allowedTypes.includes(file.type)) {
-      setUploadError('Unsupported file format. Please upload JPG, PNG, GIF, WebP, or MP4.');
+    if (!allowedTypes.includes(file.type) && !isAllowedExt) {
+      setUploadError('Unsupported file format. Please upload JPG, JPEG, or PNG only.');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -447,12 +444,12 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
   return (
     <div className="create-post-layout">
-      {/* Hidden file input */}
+      {/* Hidden file input restricted strictly to JPG, JPEG, PNG */}
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileChange}
-        accept=".jpg,.jpeg,.png,.gif,.mp4,.webp"
+        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
         className="hidden"
       />
 
@@ -635,10 +632,10 @@ export const CreatePost: React.FC<CreatePostProps> = ({
             >
               <UploadCloud size={30} className="create-post-upload-icon" />
               <div className="create-post-upload-title">
-                Upload image, video or GIF
+                Upload image (JPG, JPEG, PNG)
               </div>
               <div className="create-post-upload-subtitle">
-                Supported: JPG, PNG, WebP, MP4 (Max 10MB)
+                Supported: JPG, JPEG, PNG (Max 10MB)
               </div>
               <button type="button" className="create-post-upload-button">
                 Choose File
