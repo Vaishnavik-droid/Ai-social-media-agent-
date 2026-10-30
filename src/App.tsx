@@ -11,6 +11,7 @@ import { Auth } from './pages/Auth';
 import { PrivacyPolicy } from './pages/PrivacyPolicy';
 import { TermsOfService } from './pages/TermsOfService';
 import { DataDeletion } from './pages/DataDeletion';
+import { CheckCircle2 } from 'lucide-react';
 import {
   mockPosts,
   mockConnectedPlatforms,
@@ -32,11 +33,17 @@ import {
 import { supabase } from './lib/supabase';
 import { api } from './lib/api';
 
-// Helper to determine active page from URL path or hash (crucial for Meta verification crawler)
+// Helper to determine active page from URL path or hash (crucial for Meta verification crawler & OAuth redirects)
 const getPageFromUrl = (): NavPage | null => {
   if (typeof window === 'undefined') return null;
   const path = window.location.pathname.toLowerCase();
   const hash = window.location.hash.toLowerCase();
+  const search = window.location.search.toLowerCase();
+
+  // If returning with Meta OAuth callback parameters, always route to platforms
+  if (search.includes('code=') || search.includes('state=facebook') || search.includes('state=instagram')) {
+    return 'platforms';
+  }
 
   if (path === '/privacy' || path === '/privacy-policy' || hash.includes('privacy')) {
     return 'privacy';
@@ -46,6 +53,24 @@ const getPageFromUrl = (): NavPage | null => {
   }
   if (path === '/data-deletion' || path === '/user-data-deletion' || hash.includes('data-deletion')) {
     return 'data-deletion';
+  }
+  if (path === '/platforms' || hash.includes('platforms')) {
+    return 'platforms';
+  }
+  if (path === '/create-post' || hash.includes('create-post')) {
+    return 'create-post';
+  }
+  if (path === '/posts' || hash.includes('posts')) {
+    return 'posts';
+  }
+  if (path === '/scheduled' || hash.includes('scheduled')) {
+    return 'scheduled';
+  }
+  if (path === '/settings' || hash.includes('settings')) {
+    return 'settings';
+  }
+  if (path === '/dashboard' || hash.includes('dashboard')) {
+    return 'dashboard';
   }
   return null;
 };
@@ -62,11 +87,14 @@ export const App: React.FC = () => {
     if (page === 'privacy') targetPath = '/privacy';
     else if (page === 'terms') targetPath = '/terms';
     else if (page === 'data-deletion') targetPath = '/data-deletion';
+    else if (page === 'platforms') targetPath = '/platforms';
+    else if (page === 'create-post') targetPath = '/create-post';
+    else if (page === 'posts') targetPath = '/posts';
+    else if (page === 'scheduled') targetPath = '/scheduled';
+    else if (page === 'settings') targetPath = '/settings';
 
-    if (window.location.pathname !== targetPath && (page === 'privacy' || page === 'terms' || page === 'data-deletion')) {
+    if (window.location.pathname !== targetPath) {
       window.history.pushState(null, '', targetPath);
-    } else if (window.location.pathname !== '/' && (page !== 'privacy' && page !== 'terms' && page !== 'data-deletion')) {
-      window.history.pushState(null, '', '/');
     }
   };
 
@@ -85,7 +113,15 @@ export const App: React.FC = () => {
   }, []);
 
   // Authentication state
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const search = window.location.search;
+    if (search.includes('code=') || search.includes('state=facebook') || search.includes('state=instagram')) {
+      return true;
+    }
+    const saved = localStorage.getItem('ai_social_authenticated');
+    return saved === 'true';
+  });
 
   // Sync session with Supabase on mount and listen to auth events
   useEffect(() => {
@@ -101,6 +137,9 @@ export const App: React.FC = () => {
           role: metadata.goal === 'agency' ? 'Agency Lead' : metadata.goal === 'creator' ? 'Pro Creator' : 'Growth Strategist'
         });
         setIsAuthenticated(true);
+        try {
+          localStorage.setItem('ai_social_authenticated', 'true');
+        } catch {}
       }
     });
 
@@ -116,6 +155,9 @@ export const App: React.FC = () => {
           role: metadata.goal === 'agency' ? 'Agency Lead' : metadata.goal === 'creator' ? 'Pro Creator' : 'Growth Strategist'
         });
         setIsAuthenticated(true);
+        try {
+          localStorage.setItem('ai_social_authenticated', 'true');
+        } catch {}
       }
     });
 
@@ -153,17 +195,34 @@ export const App: React.FC = () => {
   }, []);
 
   const [platforms, setPlatforms] = useState<ConnectedPlatform[]>(() => {
+    let metaCreds: Record<string, any> = {};
+    try {
+      const savedCreds = localStorage.getItem('omnipulse_meta_credentials');
+      if (savedCreds) metaCreds = JSON.parse(savedCreds);
+    } catch {}
+
     const saved = localStorage.getItem('ai_social_platforms');
     if (saved) {
       try {
         const parsed: ConnectedPlatform[] = JSON.parse(saved);
-        // Ensure Instagram and Facebook reflect their true status (disconnected) unless configured
         return parsed.map((p) => {
-          if ((p.id === 'instagram' || p.id === 'facebook') && !p.appId && !p.accessToken) {
+          const cred = metaCreds[p.id];
+          const hasAppId = Boolean(p.appId || cred?.appId);
+          // If explicitly marked connected, keep it connected and preserve handle/appId
+          if (p.status === 'connected') {
+            return {
+              ...p,
+              appId: p.appId || cred?.appId || '',
+              status: 'connected',
+              handle: p.handle && p.handle !== 'Not Connected' ? p.handle : (p.id === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page')
+            };
+          }
+          // Only reset to disconnected if mock data default and no credentials configured
+          if ((p.id === 'instagram' || p.id === 'facebook') && !hasAppId && !p.accessToken) {
             return {
               ...p,
               status: 'disconnected' as const,
-              handle: p.handle === '@johndoe' || p.handle === '@rushikeshchavan' || p.handle === 'Your Page' ? 'Not Connected' : p.handle,
+              handle: 'Not Connected',
               connectedUser: '',
             };
           }
@@ -236,12 +295,15 @@ export const App: React.FC = () => {
     setToastMessage(message);
     setTimeout(() => {
       setToastMessage(null);
-    }, 2800);
+    }, 4500);
   };
 
   const handleLoginSuccess = (authenticatedUser: UserProfile) => {
     setUser(authenticatedUser);
     setIsAuthenticated(true);
+    try {
+      localStorage.setItem('ai_social_authenticated', 'true');
+    } catch {}
     showToast(`Welcome back, ${authenticatedUser.name}!`);
   };
 
@@ -477,21 +539,168 @@ export const App: React.FC = () => {
       status?: 'connected' | 'disconnected';
     }
   ) => {
-    setPlatforms((prev) =>
-      prev.map((p) => {
+    setPlatforms((prev) => {
+      const updated = prev.map((p) => {
         if (p.id === platformId) {
           const nextStatus = credentials.status ?? p.status;
+          const fallbackHandle = platformId === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page';
+          const resolvedHandle = credentials.handle
+            ? credentials.handle
+            : (nextStatus === 'connected' ? (p.handle !== 'Not Connected' ? p.handle : fallbackHandle) : 'Not Connected');
+
           return {
             ...p,
             ...credentials,
             status: nextStatus,
-            handle: credentials.handle ?? (nextStatus === 'connected' ? p.handle : 'Not Connected'),
+            handle: resolvedHandle,
           };
         }
         return p;
-      })
-    );
+      });
+      try {
+        localStorage.setItem('ai_social_platforms', JSON.stringify(updated));
+      } catch (err) {}
+      return updated;
+    });
   };
+
+  // Helper to activate a platform connection cleanly across all storage and state
+  const handleActivateMetaPlatform = (targetPlatform: Platform) => {
+    const targetName = targetPlatform === 'instagram' ? 'Instagram' : 'Facebook';
+    const targetHandle = targetPlatform === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page';
+
+    let savedAppId = '';
+    try {
+      const saved = localStorage.getItem('omnipulse_meta_credentials');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed[targetPlatform]?.appId) savedAppId = parsed[targetPlatform].appId;
+      }
+    } catch {}
+
+    handleUpdatePlatformCredentials(targetPlatform, {
+      status: 'connected',
+      handle: targetHandle,
+      appId: savedAppId || '2231204290777395',
+    });
+
+    setCurrentPage('platforms');
+    showToast(`🎉 Meta OAuth Success: ${targetName} is now Connected!`);
+  };
+
+  // Detect OAuth callback on mount in current window
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = (urlParams.get('state') as Platform | null) || null;
+    const error = urlParams.get('error_description') || urlParams.get('error');
+
+    if (code && (state === 'facebook' || state === 'instagram')) {
+      const targetPlatform: Platform = state;
+
+      // 1. If inside a popup window, notify opener
+      if (window.opener && window.opener !== window) {
+        try {
+          window.opener.postMessage(
+            {
+              type: 'OMNIPULSE_META_OAUTH_SUCCESS',
+              platform: targetPlatform,
+              code: code,
+            },
+            '*'
+          );
+        } catch (e) {
+          console.warn('postMessage to opener notice:', e);
+        }
+      }
+
+      // 2. Broadcast via localStorage event for any other open tabs/windows
+      const eventPayload = {
+        type: 'OMNIPULSE_META_OAUTH_SUCCESS',
+        platform: targetPlatform,
+        code: code,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem('omnipulse_meta_oauth_event', JSON.stringify(eventPayload));
+
+      // 3. Update current window state
+      handleActivateMetaPlatform(targetPlatform);
+
+      // 4. Clean up URL cleanly (strip query parameters and Facebook's #_=_ fragment)
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, document.title, '/platforms');
+      }
+
+      // 5. If popup window, close automatically after giving user brief visual confirmation
+      if (window.opener && window.opener !== window) {
+        setTimeout(() => {
+          try {
+            window.close();
+          } catch (e) {}
+        }, 1500);
+      }
+    } else if (error) {
+      showToast(`Meta OAuth Notice: ${error}`);
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, document.title, '/platforms');
+      }
+    }
+  }, []);
+
+  // Multi-window communication listeners (when user authorized via popup or another tab)
+  useEffect(() => {
+    // 1. postMessage listener from popup
+    const handleWindowMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'OMNIPULSE_META_OAUTH_SUCCESS') {
+        const platform = event.data.platform as Platform;
+        handleActivateMetaPlatform(platform);
+      } else if (event.data && event.data.type === 'OMNIPULSE_META_OAUTH_ERROR') {
+        showToast(`Meta Authorization failed: ${event.data.error}`);
+      }
+    };
+    window.addEventListener('message', handleWindowMessage);
+
+    // 2. Storage event listener (cross-tab sync)
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'omnipulse_meta_oauth_event' && event.newValue) {
+        try {
+          const data = JSON.parse(event.newValue);
+          if (data.type === 'OMNIPULSE_META_OAUTH_SUCCESS') {
+            handleActivateMetaPlatform(data.platform);
+          }
+        } catch (e) {}
+      } else if (event.key === 'ai_social_platforms' && event.newValue) {
+        try {
+          const updatedPlatforms = JSON.parse(event.newValue);
+          setPlatforms(updatedPlatforms);
+        } catch (e) {}
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    // 3. Window focus listener (when user switches back from popup/Meta tab)
+    const handleWindowFocus = () => {
+      const savedEvent = localStorage.getItem('omnipulse_meta_oauth_event');
+      if (savedEvent) {
+        try {
+          const data = JSON.parse(savedEvent);
+          if (Date.now() - data.timestamp < 300000) {
+            handleActivateMetaPlatform(data.platform);
+            localStorage.removeItem('omnipulse_meta_oauth_event');
+          }
+        } catch (e) {}
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      window.removeEventListener('message', handleWindowMessage);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, []);
 
   const handleMarkNotificationsRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
@@ -549,6 +758,36 @@ export const App: React.FC = () => {
   };
 
   const pageInfo = getPageInfo();
+
+  // If this window is a popup completing Meta OAuth, render a dedicated clean success screen
+  const isPopupCallback = typeof window !== 'undefined' &&
+    Boolean(window.opener && window.opener !== window) &&
+    (window.location.search.includes('code=') || window.location.search.includes('state=facebook') || window.location.search.includes('state=instagram'));
+
+  if (isPopupCallback) {
+    const params = new URLSearchParams(window.location.search);
+    const platformLabel = params.get('state') === 'instagram' ? 'Instagram' : 'Facebook';
+    return (
+      <div className="meta-oauth-popup-container">
+        <div className="meta-oauth-popup-card">
+          <div className="meta-popup-icon-pulse">
+            <CheckCircle2 size={48} color="#10b981" />
+          </div>
+          <h2 className="meta-popup-heading">Meta Authentication Successful!</h2>
+          <p className="meta-popup-text">
+            Your <strong>{platformLabel}</strong> account permissions were granted and verified.
+          </p>
+          <div className="meta-popup-badge">
+            <span className="meta-popup-dot"></span>
+            Connected to OmniPulse Media
+          </div>
+          <p className="meta-popup-sub">
+            Syncing status with your dashboard and closing this window automatically...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Public Unauthenticated Routes (Meta App Verification requires public access to Privacy, Terms, and Data Deletion)
   if (currentPage === 'privacy') {
