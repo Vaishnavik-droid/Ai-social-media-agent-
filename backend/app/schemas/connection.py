@@ -1,0 +1,25 @@
+from typing import List, Optional
+from pydantic import BaseModel
+
+
+class ConnectionItem(BaseModel):
+    id: str
+    name: str
+    handle: str
+    status: str  # 'connected' | 'disconnected' | 'error'
+    connected_user: Optional[str] = None
+
+
+class ConnectionListResponse(BaseModel):
+    connections: List[ConnectionItem]
+
+
+class ConnectionVerifyRequest(BaseModel):
+    platform: str
+
+
+class ConnectionVerifyResponse(BaseModel):
+    platform: str
+    is_valid: bool
+    status: str
+    message: str

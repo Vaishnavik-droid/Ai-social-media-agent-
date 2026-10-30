@@ -2,7 +2,12 @@ import { supabase } from './supabase';
 import { SocialPost, Platform } from '../types';
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+  import.meta.env.VITE_API_BASE_URL !== undefined
+    ? import.meta.env.VITE_API_BASE_URL
+    : import.meta.env.DEV
+    ? 'http://127.0.0.1:8000'
+    : '';
+
 
 interface RequestOptions extends RequestInit {
   timeoutMs?: number;
@@ -160,7 +165,7 @@ export const api = {
    * Health check to confirm backend is reachable
    */
   async checkHealth(): Promise<{ status: string; groq_configured: boolean }> {
-    return fetchWithAuth('/health');
+    return fetchWithAuth('/api/health');
   },
 
   /**
