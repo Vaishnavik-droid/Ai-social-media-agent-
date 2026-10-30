@@ -32,6 +32,10 @@ export interface ConnectedPlatform {
   handle: string;
   status: 'connected' | 'disconnected';
   connectedUser: string;
+  appId?: string;
+  appSecret?: string;
+  accessToken?: string;
+  pageId?: string;
 }
 
 export interface MetricSummary {

@@ -16,6 +16,13 @@ class ConnectionListResponse(BaseModel):
 
 class ConnectionVerifyRequest(BaseModel):
     platform: str
+    app_id: Optional[str] = None
+    app_secret: Optional[str] = None
+    access_token: Optional[str] = None
+    page_id: Optional[str] = None
+    account_id: Optional[str] = None
+    redirect_uri: Optional[str] = None
+    code: Optional[str] = None
 
 
 class ConnectionVerifyResponse(BaseModel):

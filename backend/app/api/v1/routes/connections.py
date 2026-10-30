@@ -1,3 +1,4 @@
+import httpx
 from fastapi import APIRouter
 from app.platforms.bluesky import bluesky_adapter
 from app.platforms.linkedin import linkedin_adapter
@@ -42,14 +43,14 @@ async def list_connections():
         ConnectionItem(
             id="facebook",
             name="Facebook",
-            handle=f"Page ID: {settings.FACEBOOK_PAGE_ID}" if settings.FACEBOOK_PAGE_ID else "Facebook Page",
+            handle=f"Page ID: {settings.FACEBOOK_PAGE_ID}" if settings.FACEBOOK_PAGE_ID else "Not Connected",
             status="connected" if fb_configured else "disconnected",
             connectedUser=settings.FACEBOOK_PAGE_ID or None,
         ),
         ConnectionItem(
             id="instagram",
             name="Instagram",
-            handle=f"IG ID: {settings.INSTAGRAM_BUSINESS_ACCOUNT_ID}" if settings.INSTAGRAM_BUSINESS_ACCOUNT_ID else "@yourbrand",
+            handle=f"IG ID: {settings.INSTAGRAM_BUSINESS_ACCOUNT_ID}" if settings.INSTAGRAM_BUSINESS_ACCOUNT_ID else "Not Connected",
             status="connected" if ig_configured else "disconnected",
             connectedUser=settings.INSTAGRAM_BUSINESS_ACCOUNT_ID or None,
         ),
@@ -61,6 +62,11 @@ async def list_connections():
 @router.post("/verify", response_model=ConnectionVerifyResponse)
 async def verify_connection(payload: ConnectionVerifyRequest):
     platform = payload.platform.lower().strip()
+    app_id = (payload.app_id or "").strip()
+    app_secret = (payload.app_secret or "").strip()
+    access_token = (payload.access_token or "").strip()
+    page_id = (payload.page_id or "").strip()
+    account_id = (payload.account_id or "").strip()
 
     if platform == "bluesky":
         is_valid = await bluesky_adapter.validate_connection()
@@ -79,25 +85,157 @@ async def verify_connection(payload: ConnectionVerifyRequest):
             message="LinkedIn token verified successfully!" if is_valid else "Invalid or expired LinkedIn access token in backend/.env",
         )
     elif platform == "facebook":
+        # Check user-provided credentials first if supplied
+        if access_token and page_id:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(
+                        f"https://graph.facebook.com/v19.0/{page_id}",
+                        params={"access_token": access_token, "fields": "id,name"},
+                    )
+                    if resp.status_code == 200:
+                        name = resp.json().get("name", "Facebook Page")
+                        return ConnectionVerifyResponse(
+                            platform="facebook",
+                            is_valid=True,
+                            status="connected",
+                            message=f"Facebook Page '{name}' verified successfully!",
+                        )
+                    else:
+                        detail = resp.json().get("error", {}).get("message", "Token rejected by Meta Graph API")
+                        return ConnectionVerifyResponse(
+                            platform="facebook",
+                            is_valid=False,
+                            status="disconnected",
+                            message=f"Meta Verification Error: {detail}",
+                        )
+            except Exception as e:
+                return ConnectionVerifyResponse(
+                    platform="facebook",
+                    is_valid=False,
+                    status="disconnected",
+                    message=f"Failed to connect to Meta Graph API: {str(e)}",
+                )
+        elif app_id and app_secret:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(
+                        "https://graph.facebook.com/oauth/access_token",
+                        params={
+                            "client_id": app_id,
+                            "client_secret": app_secret,
+                            "grant_type": "client_credentials",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        return ConnectionVerifyResponse(
+                            platform="facebook",
+                            is_valid=True,
+                            status="connected",
+                            message="Meta App ID and App Secret successfully validated with Meta Graph API!",
+                        )
+                    else:
+                        detail = resp.json().get("error", {}).get("message", "Invalid Meta App credentials")
+                        return ConnectionVerifyResponse(
+                            platform="facebook",
+                            is_valid=False,
+                            status="disconnected",
+                            message=f"Meta Verification Error: {detail}",
+                        )
+            except Exception as e:
+                return ConnectionVerifyResponse(
+                    platform="facebook",
+                    is_valid=False,
+                    status="disconnected",
+                    message=f"Failed to validate with Meta: {str(e)}",
+                )
+
+        # Fallback to server env validation
         is_valid = await facebook_adapter.validate_connection()
         return ConnectionVerifyResponse(
             platform="facebook",
             is_valid=is_valid,
             status="connected" if is_valid else "disconnected",
-            message="Facebook Page Access Token verified successfully!" if is_valid else "Invalid Facebook Page Token or Page ID in backend/.env",
+            message="Facebook Page Access Token verified successfully!" if is_valid else "No credentials configured. Enter your Meta App ID & App Secret or add FACEBOOK_PAGE_ACCESS_TOKEN to backend/.env",
         )
     elif platform == "instagram":
+        # Check user-provided credentials first if supplied
+        if access_token and account_id:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(
+                        f"https://graph.facebook.com/v19.0/{account_id}",
+                        params={"access_token": access_token, "fields": "id,username,name"},
+                    )
+                    if resp.status_code == 200:
+                        username = resp.json().get("username", "Instagram Account")
+                        return ConnectionVerifyResponse(
+                            platform="instagram",
+                            is_valid=True,
+                            status="connected",
+                            message=f"Instagram Account '@{username}' verified successfully!",
+                        )
+                    else:
+                        detail = resp.json().get("error", {}).get("message", "Token rejected by Meta Graph API")
+                        return ConnectionVerifyResponse(
+                            platform="instagram",
+                            is_valid=False,
+                            status="disconnected",
+                            message=f"Meta Verification Error: {detail}",
+                        )
+            except Exception as e:
+                return ConnectionVerifyResponse(
+                    platform="instagram",
+                    is_valid=False,
+                    status="disconnected",
+                    message=f"Failed to connect to Meta Graph API: {str(e)}",
+                )
+        elif app_id and app_secret:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(
+                        "https://graph.facebook.com/oauth/access_token",
+                        params={
+                            "client_id": app_id,
+                            "client_secret": app_secret,
+                            "grant_type": "client_credentials",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        return ConnectionVerifyResponse(
+                            platform="instagram",
+                            is_valid=True,
+                            status="connected",
+                            message="Meta App ID and App Secret successfully validated for Instagram Graph API!",
+                        )
+                    else:
+                        detail = resp.json().get("error", {}).get("message", "Invalid Meta App credentials")
+                        return ConnectionVerifyResponse(
+                            platform="instagram",
+                            is_valid=False,
+                            status="disconnected",
+                            message=f"Meta Verification Error: {detail}",
+                        )
+            except Exception as e:
+                return ConnectionVerifyResponse(
+                    platform="instagram",
+                    is_valid=False,
+                    status="disconnected",
+                    message=f"Failed to validate with Meta: {str(e)}",
+                )
+
+        # Fallback to server env validation
         is_valid = await instagram_adapter.validate_connection()
         return ConnectionVerifyResponse(
             platform="instagram",
             is_valid=is_valid,
             status="connected" if is_valid else "disconnected",
-            message="Instagram Business account verified successfully!" if is_valid else "Invalid Instagram Account ID or Meta User Token in backend/.env",
+            message="Instagram Business account verified successfully!" if is_valid else "No credentials configured. Enter your Meta App ID & App Secret or add INSTAGRAM_ACCESS_TOKEN to backend/.env",
         )
 
     return ConnectionVerifyResponse(
         platform=platform,
         is_valid=False,
         status="disconnected",
-        message=f"Platform '{platform}' requires OAuth 2.0 configuration in backend/.env",
+        message=f"Platform '{platform}' requires OAuth 2.0 configuration",
     )

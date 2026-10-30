@@ -246,7 +246,18 @@ export const api = {
   /**
    * Verify a platform credentials and handshake
    */
-  async verifyConnection(platform: string): Promise<{
+  async verifyConnection(
+    platform: string,
+    credentials?: {
+      app_id?: string;
+      app_secret?: string;
+      access_token?: string;
+      page_id?: string;
+      account_id?: string;
+      redirect_uri?: string;
+      code?: string;
+    }
+  ): Promise<{
     platform: string;
     is_valid: boolean;
     status: string;
@@ -254,7 +265,7 @@ export const api = {
   }> {
     return fetchWithAuth('/api/v1/connections/verify', {
       method: 'POST',
-      body: JSON.stringify({ platform }),
+      body: JSON.stringify({ platform, ...(credentials || {}) }),
     });
   },
 

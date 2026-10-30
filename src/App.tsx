@@ -154,7 +154,26 @@ export const App: React.FC = () => {
 
   const [platforms, setPlatforms] = useState<ConnectedPlatform[]>(() => {
     const saved = localStorage.getItem('ai_social_platforms');
-    return saved ? JSON.parse(saved) : mockConnectedPlatforms;
+    if (saved) {
+      try {
+        const parsed: ConnectedPlatform[] = JSON.parse(saved);
+        // Ensure Instagram and Facebook reflect their true status (disconnected) unless configured
+        return parsed.map((p) => {
+          if ((p.id === 'instagram' || p.id === 'facebook') && !p.appId && !p.accessToken) {
+            return {
+              ...p,
+              status: 'disconnected' as const,
+              handle: p.handle === '@johndoe' || p.handle === '@rushikeshchavan' || p.handle === 'Your Page' ? 'Not Connected' : p.handle,
+              connectedUser: '',
+            };
+          }
+          return p;
+        });
+      } catch {
+        return mockConnectedPlatforms;
+      }
+    }
+    return mockConnectedPlatforms;
   });
 
   const [user, setUser] = useState<UserProfile>(() => {
@@ -447,6 +466,33 @@ export const App: React.FC = () => {
     showToast('Platform handle updated.');
   };
 
+  const handleUpdatePlatformCredentials = (
+    platformId: Platform,
+    credentials: {
+      appId?: string;
+      appSecret?: string;
+      accessToken?: string;
+      pageId?: string;
+      handle?: string;
+      status?: 'connected' | 'disconnected';
+    }
+  ) => {
+    setPlatforms((prev) =>
+      prev.map((p) => {
+        if (p.id === platformId) {
+          const nextStatus = credentials.status ?? p.status;
+          return {
+            ...p,
+            ...credentials,
+            status: nextStatus,
+            handle: credentials.handle ?? (nextStatus === 'connected' ? p.handle : 'Not Connected'),
+          };
+        }
+        return p;
+      })
+    );
+  };
+
   const handleMarkNotificationsRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
   };
@@ -630,6 +676,8 @@ export const App: React.FC = () => {
               platforms={platforms}
               onToggleStatus={handleTogglePlatformStatus}
               onUpdateHandle={handleUpdatePlatformHandle}
+              onUpdateCredentials={handleUpdatePlatformCredentials}
+              onToast={showToast}
             />
           )}
 
