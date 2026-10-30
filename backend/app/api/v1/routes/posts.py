@@ -25,6 +25,23 @@ def to_uuid(val: str) -> str:
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, str(val)))
 
 
+def extract_user_id(token: Optional[str] = None) -> str:
+    """Extracts user ID from Supabase JWT or falls back to primary account."""
+    if token:
+        try:
+            import base64
+            import json
+            payload_part = token.split(".")[1]
+            padded = payload_part + "=" * ((4 - len(payload_part) % 4) % 4)
+            data = json.loads(base64.urlsafe_b64decode(padded))
+            sub = data.get("sub")
+            if sub:
+                return sub
+        except Exception:
+            pass
+    return "722cd994-8fbd-422d-afec-2f4111fb099d"
+
+
 def _get_supabase_client(token: Optional[str] = None):
     if not settings.SUPABASE_URL or not (settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY):
         return None
@@ -119,6 +136,7 @@ async def create_post(
         try:
             client.table("posts").upsert({
                 "id": db_id,
+                "user_id": extract_user_id(token),
                 "title": post_dict["title"],
                 "snippet": post_dict["snippet"],
                 "content": post_dict["content"],

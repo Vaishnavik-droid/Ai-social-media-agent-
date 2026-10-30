@@ -37,7 +37,11 @@ class GroqService:
         """
         # If real Groq client is ready, call Groq API
         if self._client:
-            for attempt in range(2):
+            candidate_models = [self.model, "openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+            seen_models = set()
+            models_to_try = [m for m in candidate_models if m and not (m in seen_models or seen_models.add(m))]
+
+            for candidate in models_to_try:
                 try:
                     platform_info = f"\nTarget Platforms: {', '.join(platforms)}." if platforms else ""
                     audience_info = f"\nAudience: {audience}." if audience else ""
@@ -59,7 +63,7 @@ class GroqService:
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt},
                         ],
-                        model=self.model,
+                        model=candidate,
                         temperature=0.7,
                         max_tokens=600,
                         timeout=15.0,
@@ -75,13 +79,13 @@ class GroqService:
                         "tone": tone,
                         "language": language,
                         "provider": "Groq",
-                        "model": self.model,
+                        "model": candidate,
                         "variants": variants,
                     }
                 except Exception as e:
-                    logger.warning(f"Groq API attempt {attempt+1} failed: {e}")
-                    if attempt == 1:
-                        logger.error(f"All Groq API retries failed. Activating fallback synthesizer.")
+                    logger.warning(f"Groq API call with model '{candidate}' failed: {e}")
+
+            logger.error("All Groq candidate models failed. Activating fallback synthesizer.")
 
         # Fallback synthesizer if Groq API key is still pending in .env or failed
         fallback_text = self._fallback_synthesis(topic, tone, language, include_hashtags)
