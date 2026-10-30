@@ -60,6 +60,19 @@ export const mockNotifications: NotificationItem[] = [
 
 export const mockPosts: SocialPost[] = [
   {
+    id: 'post-omnipulse-ai-growth',
+    title: 'Omni-Channel AI Growth',
+    snippet: 'Powering Omni-Channel Growth with AI across all social channels.',
+    content:
+      '🚀 Powering Omni-Channel Growth with AI! ⚡\n\nScale audience reach and automate publishing seamlessly across all your social channels. The future belongs to creators and brands with high-leverage workflows.\n\n#AIMarketing #OmniChannel #Automation #Growth #PulseAI',
+    platforms: ['bluesky', 'linkedin', 'facebook', 'instagram'],
+    status: 'published',
+    createdAt: 'Just now',
+    mediaUrl: '/social_media_ai_post.jpg',
+    tone: 'Inspiring',
+    contentType: 'Product Launch'
+  },
+  {
     id: 'post-1',
     title: 'AI is changing social media...',
     snippet: 'The future belongs to creators.',
