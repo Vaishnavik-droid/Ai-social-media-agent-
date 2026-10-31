@@ -176,24 +176,22 @@ export const mockPosts: SocialPost[] = [
   }
 ];
 
+/**
+ * Fallback baseline schema for platform definitions.
+ * All accounts default strictly to 'disconnected'. Real connection states are
+ * always fetched from the backend (GET /api/v1/connections) as the single source of truth.
+ */
 export const mockConnectedPlatforms: ConnectedPlatform[] = [
   {
     id: 'bluesky',
     name: 'Bluesky',
-    handle: '@yourhandle.bsky.social',
-    status: 'connected',
-    connectedUser: '@yourhandle.bsky.social'
+    handle: 'Not Connected',
+    status: 'disconnected',
+    connectedUser: ''
   },
   {
     id: 'linkedin',
     name: 'LinkedIn',
-    handle: 'Vaishnavi Kolekar',
-    status: 'connected',
-    connectedUser: 'Vaishnavi Kolekar'
-  },
-  {
-    id: 'instagram',
-    name: 'Instagram',
     handle: 'Not Connected',
     status: 'disconnected',
     connectedUser: ''
@@ -201,6 +199,13 @@ export const mockConnectedPlatforms: ConnectedPlatform[] = [
   {
     id: 'facebook',
     name: 'Facebook',
+    handle: 'Not Connected',
+    status: 'disconnected',
+    connectedUser: ''
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
     handle: 'Not Connected',
     status: 'disconnected',
     connectedUser: ''

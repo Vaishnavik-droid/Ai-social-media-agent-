@@ -195,14 +195,10 @@ export const App: React.FC = () => {
   }, []);
 
   const [platforms, setPlatforms] = useState<ConnectedPlatform[]>(() => {
-    const saved = localStorage.getItem('ai_social_platforms');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        return mockConnectedPlatforms;
-      }
-    }
+    // Purge any legacy mock connection records from localStorage
+    try {
+      localStorage.removeItem('ai_social_platforms');
+    } catch {}
     return mockConnectedPlatforms;
   });
 
@@ -217,17 +213,17 @@ export const App: React.FC = () => {
             id: c.id as Platform,
             name: c.name,
             handle: c.handle,
-            status: c.status === 'connected' ? 'connected' : c.status === 'coming_soon' ? 'coming_soon' : 'disconnected',
+            status: c.status === 'connected' ? 'connected' : c.status === 'error' ? 'error' : 'disconnected',
             connectedUser: c.connectedUser || c.connected_user || '',
             lastVerifiedAt: c.lastVerifiedAt || c.last_verified_at,
             accountId: c.accountId || c.account_id,
             accountName: c.accountName || c.account_name,
-            isComingSoon: Boolean(c.isComingSoon || c.is_coming_soon || c.status === 'coming_soon'),
+            isComingSoon: false,
           }))
         );
       }
     }).catch((err) => {
-      console.warn('Could not load connections from backend, using cached state:', err);
+      console.warn('Backend connection check failed on startup:', err);
     });
 
     return () => {
@@ -264,10 +260,6 @@ export const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('ai_social_posts', JSON.stringify(posts));
   }, [posts]);
-
-  useEffect(() => {
-    localStorage.setItem('ai_social_platforms', JSON.stringify(platforms));
-  }, [platforms]);
 
   useEffect(() => {
     localStorage.setItem('ai_social_user', JSON.stringify(user));
@@ -497,65 +489,6 @@ export const App: React.FC = () => {
     showToast('Post scheduled for tomorrow 10:00 AM!');
   };
 
-  const handleTogglePlatformStatus = (platformId: Platform) => {
-    setPlatforms((prev) =>
-      prev.map((p) => {
-        if (p.id === platformId) {
-          const nextStatus = p.status === 'connected' ? 'disconnected' : 'connected';
-          return {
-            ...p,
-            status: nextStatus
-          };
-        }
-        return p;
-      })
-    );
-    showToast(`Platform connection state updated.`);
-  };
-
-  const handleUpdatePlatformHandle = (platformId: Platform, newHandle: string) => {
-    setPlatforms((prev) =>
-      prev.map((p) => {
-        if (p.id === platformId) {
-          return {
-            ...p,
-            handle: newHandle
-          };
-        }
-        return p;
-      })
-    );
-    showToast('Platform handle updated.');
-  };
-
-  const handleUpdatePlatformCredentials = (
-    platformId: Platform,
-    credentials: {
-      appId?: string;
-      appSecret?: string;
-      accessToken?: string;
-      pageId?: string;
-      handle?: string;
-      status?: 'connected' | 'disconnected';
-    }
-  ) => {
-    setPlatforms((prev) => {
-      const updated = prev.map((p) => {
-        if (p.id === platformId) {
-          return {
-            ...p,
-            ...credentials,
-          };
-        }
-        return p;
-      });
-      try {
-        localStorage.setItem('ai_social_platforms', JSON.stringify(updated));
-      } catch (err) {}
-      return updated;
-    });
-  };
-
   // Clean URL parameters if redirect landed on frontend
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -577,7 +510,7 @@ export const App: React.FC = () => {
               id: c.id as Platform,
               name: c.name,
               handle: c.handle,
-              status: c.status === 'connected' ? 'connected' : 'disconnected',
+              status: c.status === 'connected' ? 'connected' : c.status === 'error' ? 'error' : 'disconnected',
               connectedUser: c.connectedUser || c.connected_user || '',
               lastVerifiedAt: c.lastVerifiedAt || c.last_verified_at,
               accountId: c.accountId || c.account_id,
@@ -585,7 +518,9 @@ export const App: React.FC = () => {
             }))
           );
         }
-      }).catch(() => {});
+      }).catch((err) => {
+        console.warn('Failed to refresh connections from server:', err);
+      });
     };
 
     // 1. postMessage listener from popup
@@ -599,17 +534,8 @@ export const App: React.FC = () => {
     };
     window.addEventListener('message', handleWindowMessage);
 
-    // 2. Storage event listener (cross-tab sync)
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'ai_social_platforms') {
-        refreshConnectionsFromServer();
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-
     return () => {
       window.removeEventListener('message', handleWindowMessage);
-      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
@@ -824,9 +750,6 @@ export const App: React.FC = () => {
           {currentPage === 'platforms' && (
             <Platforms
               platforms={platforms}
-              onToggleStatus={handleTogglePlatformStatus}
-              onUpdateHandle={handleUpdatePlatformHandle}
-              onUpdateCredentials={handleUpdatePlatformCredentials}
               onToast={showToast}
             />
           )}

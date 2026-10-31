@@ -91,11 +91,11 @@ const ALL_PLATFORMS: PlatformDefinition[] = [
 ];
 
 export const Platforms: React.FC<PlatformsProps> = ({
-  platforms: initialPlatforms,
   onToast,
 }) => {
   const [platformList, setPlatformList] = useState<PlatformConnection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
   // Active Connect Modals for Bluesky & LinkedIn
@@ -110,35 +110,31 @@ export const Platforms: React.FC<PlatformsProps> = ({
   // Disconnection Confirmation Modal state
   const [disconnectTarget, setDisconnectTarget] = useState<{ id: string; name: string; handle: string } | null>(null);
 
-  // Fetch real connection states from FastAPI backend
-  const fetchConnections = useCallback(async () => {
+  // Fetch real connection states from FastAPI backend as single source of truth
+  const fetchConnections = useCallback(async (isManual = false) => {
     try {
       setIsLoading(true);
+      setFetchError(null);
       const res = await api.listConnections();
       if (res && res.connections) {
         setPlatformList(res.connections);
+        if (isManual && onToast) {
+          onToast('✓ Platform connection statuses refreshed from server.');
+        }
+      } else {
+        setPlatformList([]);
       }
     } catch (err: any) {
-      console.warn('Could not fetch server connections:', err);
-      if (initialPlatforms && initialPlatforms.length > 0) {
-        setPlatformList(
-          initialPlatforms.map((p) => ({
-            id: p.id,
-            name: p.name,
-            handle: p.handle,
-            status: p.status,
-            connectedUser: p.connectedUser,
-            lastVerifiedAt: p.lastVerifiedAt,
-            accountId: p.accountId,
-            accountName: p.accountName,
-            isComingSoon: false,
-          }))
-        );
+      console.error('Could not fetch server connections:', err);
+      const msg = err?.message || 'Failed to retrieve connection statuses from backend.';
+      setFetchError(msg);
+      if (isManual && onToast) {
+        onToast(`✕ Refresh failed: ${msg}`);
       }
     } finally {
       setIsLoading(false);
     }
-  }, [initialPlatforms]);
+  }, [onToast]);
 
   useEffect(() => {
     fetchConnections();
@@ -349,7 +345,7 @@ export const Platforms: React.FC<PlatformsProps> = ({
 
         <button
           type="button"
-          onClick={fetchConnections}
+          onClick={() => fetchConnections(true)}
           disabled={isLoading}
           className="btn-refresh-all"
           title="Refresh connection statuses from server"
@@ -358,6 +354,30 @@ export const Platforms: React.FC<PlatformsProps> = ({
           <span>Refresh All</span>
         </button>
       </div>
+
+      {/* Backend Synchronization Error Banner */}
+      {fetchError && (
+        <div className="platforms-fetch-error-banner">
+          <div className="fetch-error-icon-wrap">
+            <AlertCircle size={20} className="text-red-500" />
+          </div>
+          <div className="fetch-error-content">
+            <span className="fetch-error-title">Backend Connection Error</span>
+            <span className="fetch-error-text">
+              Unable to retrieve connection statuses from the server ({fetchError}).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchConnections(true)}
+            disabled={isLoading}
+            className="btn-fetch-retry"
+          >
+            <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
+            <span>Retry</span>
+          </button>
+        </div>
+      )}
 
       {/* Security Architecture Badge */}
       <div className="platforms-security-banner">
@@ -471,6 +491,16 @@ export const Platforms: React.FC<PlatformsProps> = ({
                         )}
                       </div>
                     </div>
+                  ) : isError ? (
+                    <div className="identity-error-box">
+                      <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
+                      <div className="identity-error-text">
+                        <span className="error-title">Account verification failed</span>
+                        <span className="error-subtitle">
+                          {accountIdentifier ? `${accountIdentifier} — ` : ''}credentials are expired or invalid. Reconnect or verify.
+                        </span>
+                      </div>
+                    </div>
                   ) : (
                     <div className="identity-disconnected-box">
                       <span className="text-xs text-slate-400">
@@ -504,6 +534,40 @@ export const Platforms: React.FC<PlatformsProps> = ({
                     >
                       <LogOut size={13} />
                       <span>Disconnect</span>
+                    </button>
+                  </div>
+                ) : isError ? (
+                  <div className="error-btn-group">
+                    <button
+                      type="button"
+                      onClick={() => handleRefresh(def.id)}
+                      disabled={isActionLoading}
+                      className="btn-card-verify"
+                      title="Re-verify credentials against platform API"
+                    >
+                      <RefreshCw size={13} className={isActionLoading ? 'animate-spin' : ''} />
+                      <span>{isActionLoading ? 'Verifying...' : 'Verify'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (def.type === 'modal') {
+                          setModalError(null);
+                          setActiveModal(def.id as 'bluesky' | 'linkedin');
+                        } else if (def.type === 'pinterest_oauth') {
+                          handleConnectOAuth('pinterest');
+                        } else if (def.type === 'youtube_oauth') {
+                          handleConnectOAuth('youtube');
+                        } else {
+                          handleConnectOAuth(def.id as 'facebook' | 'instagram');
+                        }
+                      }}
+                      disabled={isActionLoading}
+                      className="btn-card-reconnect"
+                      title="Re-authenticate with platform"
+                    >
+                      <Key size={13} />
+                      <span>Reconnect</span>
                     </button>
                   </div>
                 ) : (

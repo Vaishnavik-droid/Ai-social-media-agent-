@@ -1144,6 +1144,129 @@ input[type='file']::file-selector-button {
   transform: translateY(-1px);
 }
 
+/* Platforms Fetch Error Banner */
+.platforms-fetch-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+.fetch-error-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fetch-error-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.fetch-error-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #991b1b;
+}
+
+.fetch-error-text {
+  font-size: 12px;
+  color: #b91c1c;
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+.btn-fetch-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: #ffffff;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-fetch-retry:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+
+/* Identity Error Box */
+.identity-error-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+  border-radius: 6px;
+}
+
+.identity-error-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.identity-error-text .error-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.identity-error-text .error-subtitle {
+  font-size: 11px;
+  color: #b45309;
+  margin-top: 1px;
+}
+
+/* Error State Reconnect Button Group */
+.error-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.error-btn-group .btn-card-verify {
+  flex: 1;
+}
+
+.btn-card-reconnect {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9a3412;
+  background: #ffedd5;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-card-reconnect:hover:not(:disabled) {
+  background: #fed7aa;
+  transform: translateY(-1px);
+}
+
 .coming-soon-btn-group {
   width: 100%;
 }

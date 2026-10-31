@@ -178,6 +178,35 @@ class CredentialService:
 
         return True
 
+    async def update_connection_status(
+        self,
+        platform: str,
+        status: str,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """
+        Updates status and verification timestamp of an existing platform connection record.
+        """
+        p_clean = platform.lower().strip()
+        now_str = self._iso_now()
+
+        if p_clean in _MEMORY_CONNECTIONS:
+            _MEMORY_CONNECTIONS[p_clean]["status"] = status
+            _MEMORY_CONNECTIONS[p_clean]["last_verified_at"] = now_str
+
+        client = _get_supabase_client()
+        if client:
+            try:
+                client.table("platform_connections").update({
+                    "status": status,
+                    "last_verified_at": now_str,
+                }).eq("platform", p_clean).execute()
+                return True
+            except Exception as e:
+                logger.error(f"Failed to update connection status in Supabase: {e}")
+                return False
+        return True
+
     def get_safe_connection_item(self, platform: str) -> Dict[str, Any]:
         """
         Returns safe public connection status for API responses.
@@ -216,6 +245,28 @@ class CredentialService:
                 "name": display_name,
                 "handle": record.get("handle") or "Connected Account",
                 "status": "connected",
+                "connected_user": user,
+                "connectedUser": user,
+                "account_id": acc_id,
+                "accountId": acc_id,
+                "account_name": acc_name,
+                "accountName": acc_name,
+                "last_verified_at": last_v,
+                "lastVerifiedAt": last_v,
+                "is_configured": True,
+                "isConfigured": True,
+            }
+
+        if record and record.get("status") == "error":
+            acc_id = record.get("account_id")
+            acc_name = record.get("account_name")
+            user = record.get("connected_user") or record.get("handle")
+            last_v = record.get("last_verified_at")
+            return {
+                "id": p_clean,
+                "name": display_name,
+                "handle": record.get("handle") or "Connection Error",
+                "status": "error",
                 "connected_user": user,
                 "connectedUser": user,
                 "account_id": acc_id,
