@@ -9,7 +9,7 @@ from app.main import app
 from app.platforms.pinterest import PinterestAdapter
 from app.api.v1.routes.posts import to_uuid, _MEMORY_POSTS
 from app.api.v1.routes.publishing import publish_post_endpoint
-from app.schemas.publishing import PublishRequest
+from app.schemas.publishing import PublishRequest, PlatformResult
 
 client = TestClient(app)
 
@@ -515,3 +515,88 @@ async def test_publishing_endpoint_preserves_published_status_on_db_write_failur
         assert resp.success is True
         assert resp.results[0].status == "published"
         assert "mock_pin_" in resp.results[0].remote_post_id
+
+
+def test_default_publishing_mode_is_mock_safeguard():
+    """
+    Ensure the default Settings.PUBLISHING_MODE is 'mock' as a safeguard against accidental live posts
+    in unconfigured or development environments.
+    """
+    from app.core.config import Settings
+    assert Settings.model_fields["PUBLISHING_MODE"].default == "mock"
+
+
+@pytest.mark.anyio
+async def test_pinterest_sandbox_publishing_enforces_live_dispatch():
+    """
+    Ensure that when PINTEREST_SANDBOX_TOKEN is present and user does not specify dry_run=True,
+    the publishing router overrides any mock mode and dispatches live (dry_run=False) to Pinterest adapter.
+    """
+    test_post_id = f"sandbox-live-{uuid.uuid4().hex[:8]}"
+    _MEMORY_POSTS[test_post_id] = {
+        "id": test_post_id,
+        "content": "Live Pinterest Sandbox Post",
+        "media_url": "https://example.com/photo.jpg",
+        "status": "pending",
+    }
+
+    mock_adapter = AsyncMock()
+    mock_adapter.publish_post.return_value = PlatformResult(
+        platform="pinterest",
+        status="published",
+        remote_post_id="sandbox_pin_12345",
+        remote_post_url="https://www.pinterest.com/pin/sandbox_pin_12345/",
+        is_mock=False,
+    )
+
+    with patch.dict(os.environ, {"PINTEREST_SANDBOX_TOKEN": "pntsb_dummy_token_999"}), \
+         patch("app.api.v1.routes.publishing.ADAPTERS", {"pinterest": mock_adapter}), \
+         patch("app.api.v1.routes.publishing._get_supabase_client", return_value=None):
+        req = PublishRequest(
+            post_id=test_post_id,
+            platforms=["pinterest"],
+            dry_run=False,
+        )
+        resp = await publish_post_endpoint(req)
+
+        assert resp.success is True
+        assert resp.is_mock is False
+        mock_adapter.publish_post.assert_awaited_once()
+        _, kwargs = mock_adapter.publish_post.call_args
+        assert kwargs["dry_run"] is False
+
+
+@pytest.mark.anyio
+async def test_failed_pinterest_api_request_cannot_report_success():
+    """
+    Ensure that a failed Pinterest API request returns success=False, status='failed',
+    and never falsifies a failure into a success.
+    """
+    test_post_id = f"sandbox-fail-{uuid.uuid4().hex[:8]}"
+    _MEMORY_POSTS[test_post_id] = {
+        "id": test_post_id,
+        "content": "Pinterest Post That Fails",
+        "media_url": "https://example.com/photo.jpg",
+        "status": "pending",
+    }
+
+    mock_adapter = AsyncMock()
+    mock_adapter.publish_post.return_value = PlatformResult(
+        platform="pinterest",
+        status="failed",
+        error_message="Pinterest: User does not have permission to pin to board.",
+    )
+
+    with patch("app.api.v1.routes.publishing.ADAPTERS", {"pinterest": mock_adapter}), \
+         patch("app.api.v1.routes.publishing._get_supabase_client", return_value=None):
+        req = PublishRequest(
+            post_id=test_post_id,
+            platforms=["pinterest"],
+            dry_run=False,
+        )
+        resp = await publish_post_endpoint(req)
+
+        assert resp.success is False
+        assert resp.results[0].status == "failed"
+        assert "User does not have permission" in resp.results[0].error_message
+

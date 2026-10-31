@@ -250,6 +250,7 @@ class PinterestAdapter(BasePlatformAdapter):
     ) -> PlatformResult:
         # 1. Validation: Pinterest description limit is 500 characters
         if len(content) > 500:
+            logger.warning("[Pinterest Sandbox] Validation failed: Description exceeds 500 characters (%d chars).", len(content))
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
@@ -259,6 +260,7 @@ class PinterestAdapter(BasePlatformAdapter):
         # 2. Dry-Run / Mock Publishing Mode
         if dry_run:
             simulated_id = f"mock_pin_{int(datetime.datetime.now().timestamp())}"
+            logger.warning("[Pinterest Sandbox] Dry run is True. External HTTP request skipped. Returning simulated pin: %s", simulated_id)
             return PlatformResult(
                 platform=self.platform_name,
                 status="published",
@@ -271,6 +273,7 @@ class PinterestAdapter(BasePlatformAdapter):
         # 3. Live Pinterest API Dispatch
         token, _ = await self._resolve_credentials()
         if not token:
+            logger.error("[Pinterest Sandbox] Aborting: Missing credentials. Neither PINTEREST_SANDBOX_TOKEN nor OAuth token found.")
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
@@ -279,6 +282,7 @@ class PinterestAdapter(BasePlatformAdapter):
 
         # Pinterest Pins strictly require an image or video URL
         if not media_url:
+            logger.error("[Pinterest Sandbox] Aborting: Missing media URL.")
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
@@ -299,16 +303,17 @@ class PinterestAdapter(BasePlatformAdapter):
                 file_bytes = base64.b64decode(encoded)
                 supabase_url = _upload_to_supabase(file_bytes, f"pin_upload.{ext}", mime)
                 if supabase_url:
-                    logger.info(f"Auto-uploaded Pinterest data URL to Supabase: {supabase_url}")
+                    logger.info("[Pinterest Sandbox] Auto-uploaded Pinterest data URL to Supabase: %s", supabase_url)
                     media_url = supabase_url
                 else:
+                    logger.error("[Pinterest Sandbox] Failed to upload data URL to Supabase.")
                     return PlatformResult(
                         platform=self.platform_name,
                         status="failed",
                         error_message="Pinterest requires a publicly accessible image URL (http/https). Local browser file uploads cannot be fetched by Pinterest.",
                     )
             except Exception as e:
-                logger.warning(f"Failed to auto-upload data URL for Pinterest: {e}")
+                logger.warning("[Pinterest Sandbox] Failed to auto-upload data URL for Pinterest: %s", e)
                 return PlatformResult(
                     platform=self.platform_name,
                     status="failed",
@@ -318,10 +323,13 @@ class PinterestAdapter(BasePlatformAdapter):
         # Determine destination board ID
         board_id = kwargs.get("board_id")
         if not board_id:
+            logger.info("[Pinterest Sandbox] No board_id provided in kwargs; fetching available boards...")
             boards = await self.get_boards()
             if boards:
                 board_id = boards[0]["id"]
+                logger.info("[Pinterest Sandbox] Selected first available board: %s (%s)", board_id, boards[0].get("name"))
             else:
+                logger.error("[Pinterest Sandbox] No boards found on account.")
                 return PlatformResult(
                     platform=self.platform_name,
                     status="failed",
@@ -330,7 +338,7 @@ class PinterestAdapter(BasePlatformAdapter):
 
         raw_title = kwargs.get("title") or content
         title = raw_title[:100].strip()
-        description = content[:800].strip()
+        description = content[:500].strip()
         link = kwargs.get("destination_url") or kwargs.get("link")
 
         payload: Dict[str, Any] = {
@@ -345,38 +353,66 @@ class PinterestAdapter(BasePlatformAdapter):
         if link:
             payload["link"] = link
 
+        endpoint_url = f"{self.API_BASE_URL}/pins"
+        logger.info(
+            "[Pinterest Sandbox] Attempting outgoing API request. Method: POST, URL: %s, Board ID: %s, Title: %s, Media URL: %s",
+            endpoint_url,
+            payload["board_id"],
+            payload["title"],
+            payload["media_source"]["url"],
+        )
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 resp = await client.post(
-                    f"{self.API_BASE_URL}/pins",
+                    endpoint_url,
                     headers={
                         "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                     },
                     json=payload,
                 )
+                logger.info(
+                    "[Pinterest Sandbox] Response received from POST %s. HTTP Status: %s, Body: %s",
+                    endpoint_url,
+                    resp.status_code,
+                    resp.text[:300],
+                )
 
-                if resp.status_code == 401:
+                if resp.status_code == 401 and not self._get_sandbox_token():
+                    logger.info("[Pinterest Sandbox] 401 Unauthorized encountered. Attempting OAuth token refresh...")
                     new_token = await self._refresh_access_token()
                     if new_token:
                         token = new_token
                         resp = await client.post(
-                            f"{self.API_BASE_URL}/pins",
+                            endpoint_url,
                             headers={
                                 "Authorization": f"Bearer {token}",
                                 "Content-Type": "application/json",
                             },
                             json=payload,
                         )
+                        logger.info(
+                            "[Pinterest Sandbox] Retried POST %s after token refresh. HTTP Status: %s, Body: %s",
+                            endpoint_url,
+                            resp.status_code,
+                            resp.text[:300],
+                        )
 
                 if resp.status_code in (200, 201):
                     data = resp.json()
                     pin_id = str(data.get("id", f"pin_{int(datetime.datetime.now().timestamp())}"))
+                    pin_url = f"https://www.pinterest.com/pin/{pin_id}/"
+                    logger.info(
+                        "[Pinterest Sandbox] Pin successfully published! Returned Pin ID: %s, URL: %s",
+                        pin_id,
+                        pin_url,
+                    )
                     return PlatformResult(
                         platform=self.platform_name,
                         status="published",
                         remote_post_id=pin_id,
-                        remote_post_url=f"https://www.pinterest.com/pin/{pin_id}/",
+                        remote_post_url=pin_url,
                         is_mock=False,
                         error_message=None,
                     )
@@ -398,13 +434,18 @@ class PinterestAdapter(BasePlatformAdapter):
                     except Exception:
                         if resp.text:
                             err_msg = f"Pinterest API Error (HTTP {resp.status_code}): {resp.text[:200]}"
+                    logger.error(
+                        "[Pinterest Sandbox] Pin creation failed on Pinterest API. HTTP Status: %s, Error: %s",
+                        resp.status_code,
+                        err_msg,
+                    )
                     return PlatformResult(
                         platform=self.platform_name,
                         status="failed",
                         error_message=err_msg,
                     )
             except Exception as e:
-                logger.exception(f"Error publishing Pin to Pinterest: {e}")
+                logger.exception("[Pinterest Sandbox] Network error communicating with Pinterest API: %s", e)
                 return PlatformResult(
                     platform=self.platform_name,
                     status="failed",

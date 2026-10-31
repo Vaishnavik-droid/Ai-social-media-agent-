@@ -1,5 +1,6 @@
 import datetime
 import logging
+import os
 from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException
 
@@ -64,37 +65,64 @@ async def publish_post_endpoint(payload: PublishRequest):
         else:
             raise HTTPException(status_code=404, detail=f"Post with ID {payload.post_id} not found.")
 
+    logger.info(
+        "[Publishing] Received publish request: post_id=%s, platforms=%s, dry_run=%s, board_id=%s, title=%s, PUBLISHING_MODE=%s",
+        payload.post_id,
+        payload.platforms,
+        payload.dry_run,
+        payload.board_id,
+        payload.title,
+        settings.PUBLISHING_MODE,
+    )
+
     content = payload.content if payload.content is not None else post_data.get("content", "")
     media_url = payload.media_url if payload.media_url is not None else post_data.get("media_url")
 
     results: List[PlatformResult] = []
     any_success = False
 
-    effective_dry_run = payload.dry_run or (settings.PUBLISHING_MODE.lower() == "mock")
+    global_dry_run = payload.dry_run or (settings.PUBLISHING_MODE.lower() == "mock")
 
     # 2. Iterate requested platforms
     for platform in payload.platforms:
         p_clean = platform.lower().strip()
         adapter = ADAPTERS.get(p_clean)
         if adapter:
+            platform_dry_run = global_dry_run
+            # Pinterest Sandbox Override: If PINTEREST_SANDBOX_TOKEN is configured and user did not explicitly request dry_run, enforce live execution
+            if p_clean == "pinterest" and not payload.dry_run:
+                sandbox_token = getattr(settings, "PINTEREST_SANDBOX_TOKEN", None) or os.environ.get("PINTEREST_SANDBOX_TOKEN")
+                if sandbox_token:
+                    platform_dry_run = False
+                    logger.info("[Publishing] Pinterest sandbox token detected. Enforcing live API dispatch (dry_run=False).")
+
             result = await adapter.publish_post(
                 content=content,
                 media_url=media_url,
-                dry_run=effective_dry_run,
+                dry_run=platform_dry_run,
                 title=payload.title,
                 board_id=payload.board_id,
             )
             results.append(result)
+            logger.info(
+                "[Publishing] Platform result for '%s': status=%s, remote_post_id=%s, remote_post_url=%s, is_mock=%s, error=%s",
+                result.platform,
+                result.status,
+                result.remote_post_id,
+                result.remote_post_url,
+                result.is_mock,
+                result.error_message,
+            )
             if result.status == "published":
                 any_success = True
         else:
-            results.append(
-                PlatformResult(
-                    platform=platform,
-                    status="failed",
-                    error_message=f"Platform adapter for '{platform}' requires API credentials in platform_credentials.env",
-                )
+            fail_result = PlatformResult(
+                platform=platform,
+                status="failed",
+                error_message=f"Platform adapter for '{platform}' requires API credentials in platform_credentials.env",
             )
+            results.append(fail_result)
+            logger.warning("[Publishing] No adapter registered for platform: %s", platform)
 
     # 3. Update status in memory & Supabase
     overall_status = "published" if any_success else "failed"
@@ -126,6 +154,13 @@ async def publish_post_endpoint(payload: PublishRequest):
 
             try:
                 client.table("post_platforms").upsert(row_data, on_conflict="post_id,platform").execute()
+                logger.info(
+                    "[Publishing] DB persistence for '%s' (post_id: %s) succeeded: remote_post_id=%s, status=%s",
+                    r.platform,
+                    db_id,
+                    r.remote_post_id,
+                    r.status,
+                )
             except Exception as e:
                 err_str = str(e)
                 if "remote_post_id" in err_str or "remote_post_url" in err_str or "schema cache" in err_str:
@@ -145,6 +180,13 @@ async def publish_post_endpoint(payload: PublishRequest):
                         fallback_data["published_at"] = now_iso
                     try:
                         client.table("post_platforms").upsert(fallback_data, on_conflict="post_id,platform").execute()
+                        logger.info(
+                            "[Publishing] DB fallback persistence for '%s' (post_id: %s) succeeded: published_url=%s, status=%s",
+                            r.platform,
+                            db_id,
+                            r.remote_post_url,
+                            r.status,
+                        )
                     except Exception as fallback_err:
                         logger.error(f"Failed to upsert post_platform fallback for {r.platform}: {fallback_err}")
                 else:
@@ -155,5 +197,5 @@ async def publish_post_endpoint(payload: PublishRequest):
         success=any_success,
         message=f"Post dispatched to {len(payload.platforms)} platform(s): {overall_status}",
         results=results,
-        is_mock=effective_dry_run,
+        is_mock=any(r.is_mock for r in results) if results else global_dry_run,
     )

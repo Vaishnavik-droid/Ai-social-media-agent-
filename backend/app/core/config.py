@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # =========================================================================
     # 2. Publishing & Scheduler Engine
     # =========================================================================
-    PUBLISHING_MODE: str = "mock"  # "mock" or "live"
+    PUBLISHING_MODE: str = "mock"  # "mock" or "live" (safe default; live sandbox dispatch is enforced when sandbox tokens are present)
     SCHEDULER_ENABLED: bool = True
     SCHEDULER_POLL_INTERVAL_SECONDS: int = 15
     CRON_SECRET: str = ""
