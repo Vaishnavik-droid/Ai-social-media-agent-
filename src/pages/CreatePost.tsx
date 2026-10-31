@@ -436,23 +436,30 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       );
 
       // Step 3: Show results
-      const results = publishRes.results.map((r) => ({
-        platform: r.platform,
-        status: r.status,
-        url: r.remote_post_url,
-        error: r.error_message,
+      const rawResults = Array.isArray(publishRes?.results) ? publishRes.results : [];
+      const results = rawResults.map((r) => ({
+        platform: r?.platform || 'platform',
+        status: r?.status || 'failed',
+        url: r?.remote_post_url,
+        error: r?.error_message,
       }));
       setPublishResults(results);
 
-      // Update local state
-      const finalPost = { ...savedPost, status: publishRes.success ? 'published' : 'failed' as any };
-      onPostCreated(finalPost);
+      // Update local state - notify parent without double dispatch
+      const isSuccess = Boolean(publishRes?.success);
+      const finalPost = { ...savedPost, status: (isSuccess ? 'published' : 'failed') as any };
+      try {
+        onPostCreated(finalPost);
+      } catch (postErr) {
+        console.warn('onPostCreated notification notice:', postErr);
+      }
 
     } catch (err: any) {
+      console.error('Publishing dispatch error:', err);
       setPublishResults([{
-        platform: 'all',
+        platform: selectedPlatforms[0] || 'all',
         status: 'failed',
-        error: err?.message || 'Failed to connect to backend. Is the server running?',
+        error: err?.message || 'Failed to complete publish request. Please try again.',
       }]);
     } finally {
       setIsPublishing(false);

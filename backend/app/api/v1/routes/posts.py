@@ -148,13 +148,15 @@ async def create_post(
                 "scheduled_at": post_dict["scheduled_at"],
             }).execute()
 
-            # Insert target platforms
+            # Insert target platforms with deterministic UUID and on_conflict safeguard
             for plat in payload.platforms:
+                platform_row_id = to_uuid(f"{db_id}-{plat}")
                 client.table("post_platforms").upsert({
+                    "id": platform_row_id,
                     "post_id": db_id,
                     "platform": plat,
                     "status": "scheduled" if payload.status == "scheduled" else "pending",
-                }).execute()
+                }, on_conflict="post_id,platform").execute()
 
             # If scheduled, also register in scheduled_posts queue
             if payload.status == "scheduled" and post_dict.get("scheduled_at"):

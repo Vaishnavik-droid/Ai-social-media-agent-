@@ -262,6 +262,7 @@ export const api = {
         title: title || undefined,
         board_id: boardId || undefined,
       }),
+      timeoutMs: 45000,
     });
   },
 

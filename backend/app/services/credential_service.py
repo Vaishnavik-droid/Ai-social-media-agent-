@@ -121,6 +121,23 @@ class CredentialService:
         Retrieves and decrypts stored tokens. Never expose to client!
         """
         p_clean = platform.lower().strip()
+
+        # Prioritize Sandbox token for Pinterest Sandbox integration
+        if p_clean == "pinterest":
+            import os
+            sandbox_token = getattr(settings, "PINTEREST_SANDBOX_TOKEN", "") or os.environ.get("PINTEREST_SANDBOX_TOKEN", "")
+            if sandbox_token:
+                return {
+                    "platform": "pinterest",
+                    "access_token": sandbox_token.strip(),
+                    "refresh_token": None,
+                    "account_id": "pinterest_sandbox_user",
+                    "account_name": "Pinterest Sandbox",
+                    "handle": "Pinterest Sandbox",
+                    "metadata": {"mode": "sandbox"},
+                    "token_expires_at": None,
+                }
+
         record: Optional[Dict[str, Any]] = None
 
         client = _get_supabase_client()
@@ -318,6 +335,12 @@ class CredentialService:
             env_configured = True
             default_handle = settings.LINKEDIN_AUTHOR_URN or "LinkedIn Account"
             default_user = settings.LINKEDIN_AUTHOR_URN
+        elif p_clean == "pinterest":
+            import os
+            if getattr(settings, "PINTEREST_SANDBOX_TOKEN", "") or os.environ.get("PINTEREST_SANDBOX_TOKEN", ""):
+                env_configured = True
+                default_handle = "Pinterest Sandbox"
+                default_user = "Pinterest Sandbox" 
 
         return {
             "id": p_clean,

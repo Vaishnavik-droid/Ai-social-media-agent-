@@ -12,16 +12,30 @@ logger = logging.getLogger(__name__)
 
 
 class PinterestAdapter(BasePlatformAdapter):
-    API_BASE_URL = "https://api.pinterest.com/v5"
+    API_BASE_URL = "https://api-sandbox.pinterest.com/v5"
 
     @property
     def platform_name(self) -> str:
         return "pinterest"
 
+    def _get_sandbox_token(self) -> str:
+        """
+        Retrieves PINTEREST_SANDBOX_TOKEN from settings or process environment.
+        """
+        import os
+        token = getattr(settings, "PINTEREST_SANDBOX_TOKEN", "") or os.environ.get("PINTEREST_SANDBOX_TOKEN", "")
+        return token.strip() if token else ""
+
     async def _resolve_credentials(self) -> tuple[str, str]:
         """
-        Retrieves active access token and account/user ID from CredentialService.
+        Retrieves active access token and account/user ID.
+        Exclusively uses PINTEREST_SANDBOX_TOKEN for Sandbox publishing,
+        ensuring production OAuth access token is never used for Sandbox API requests.
         """
+        sandbox_token = self._get_sandbox_token()
+        if sandbox_token:
+            return sandbox_token, "pinterest_sandbox_user"
+
         from app.services.credential_service import credential_service
         creds = await credential_service.get_credentials("pinterest")
         if creds and creds.get("access_token"):
@@ -36,6 +50,10 @@ class PinterestAdapter(BasePlatformAdapter):
         creds = await credential_service.get_credentials("pinterest")
         if not creds or not creds.get("refresh_token"):
             logger.warning("No refresh token available to refresh Pinterest access token.")
+            return None
+
+        if self._get_sandbox_token():
+            logger.debug("PINTEREST_SANDBOX_TOKEN is configured; OAuth refresh is not applicable.")
             return None
 
         app_id = settings.PINTEREST_APP_ID.strip()
@@ -177,7 +195,7 @@ class PinterestAdapter(BasePlatformAdapter):
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Missing Pinterest credentials. Please connect your Pinterest account in Platforms.",
+                error_message="Missing Pinterest credentials. Please configure PINTEREST_SANDBOX_TOKEN or connect your account.",
             )
 
         # Pinterest Pins strictly require an image or video URL
@@ -231,13 +249,15 @@ class PinterestAdapter(BasePlatformAdapter):
                     error_message="No Pinterest boards found on this account. Please create at least one board on Pinterest before creating pins.",
                 )
 
-        title = kwargs.get("title") or content[:100].strip()
+        raw_title = kwargs.get("title") or content
+        title = raw_title[:100].strip()
+        description = content[:800].strip()
         link = kwargs.get("destination_url") or kwargs.get("link")
 
-        payload = {
+        payload: Dict[str, Any] = {
             "title": title,
-            "description": content,
-            "board_id": board_id,
+            "description": description,
+            "board_id": str(board_id).strip(),
             "media_source": {
                 "source_type": "image_url",
                 "url": media_url,
@@ -246,7 +266,7 @@ class PinterestAdapter(BasePlatformAdapter):
         if link:
             payload["link"] = link
 
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 resp = await client.post(
                     f"{self.API_BASE_URL}/pins",
@@ -272,7 +292,7 @@ class PinterestAdapter(BasePlatformAdapter):
 
                 if resp.status_code in (200, 201):
                     data = resp.json()
-                    pin_id = data.get("id", f"pin_{int(datetime.datetime.now().timestamp())}")
+                    pin_id = str(data.get("id", f"pin_{int(datetime.datetime.now().timestamp())}"))
                     return PlatformResult(
                         platform=self.platform_name,
                         status="published",
@@ -286,10 +306,19 @@ class PinterestAdapter(BasePlatformAdapter):
                     try:
                         err_json = resp.json()
                         msg = err_json.get("message")
+                        details = err_json.get("details")
                         if msg:
                             err_msg = f"Pinterest: {msg}"
+                            if details and isinstance(details, list) and len(details) > 0:
+                                d_item = details[0]
+                                d_msg = d_item.get("message") if isinstance(d_item, dict) else str(d_item)
+                                if d_msg and d_msg != msg:
+                                    err_msg += f" ({d_msg})"
+                        elif "error" in err_json:
+                            err_msg = f"Pinterest: {err_json['error']}"
                     except Exception:
-                        pass
+                        if resp.text:
+                            err_msg = f"Pinterest API Error (HTTP {resp.status_code}): {resp.text[:200]}"
                     return PlatformResult(
                         platform=self.platform_name,
                         status="failed",

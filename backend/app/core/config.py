@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # Pinterest Developer App (Phase 2B readiness)
     PINTEREST_APP_ID: str = ""
     PINTEREST_REDIRECT_URI: str = ""
+    PINTEREST_SANDBOX_TOKEN: str = ""
 
     # Google / YouTube OAuth App (Phase 2B readiness)
     GOOGLE_CLIENT_ID: str = ""

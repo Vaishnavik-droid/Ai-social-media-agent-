@@ -1,5 +1,6 @@
+import datetime
 import logging
-from typing import Dict, List
+from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
@@ -104,17 +105,50 @@ async def publish_post_endpoint(payload: PublishRequest):
     if client:
         try:
             client.table("posts").update({"status": overall_status}).eq("id", db_id).execute()
-            for r in results:
-                client.table("post_platforms").upsert({
-                    "post_id": db_id,
-                    "platform": r.platform,
-                    "status": r.status,
-                    "remote_post_id": r.remote_post_id,
-                    "remote_post_url": r.remote_post_url,
-                    "error_message": r.error_message,
-                }).execute()
         except Exception as e:
             logger.error(f"Failed to update post status in Supabase: {e}")
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        for r in results:
+            platform_row_id = to_uuid(f"{db_id}-{r.platform}")
+            row_data: Dict[str, Any] = {
+                "id": platform_row_id,
+                "post_id": db_id,
+                "platform": r.platform,
+                "status": r.status,
+                "published_url": r.remote_post_url,
+                "remote_post_url": r.remote_post_url,
+                "remote_post_id": r.remote_post_id,
+                "error_message": r.error_message,
+            }
+            if r.status == "published":
+                row_data["published_at"] = now_iso
+
+            try:
+                client.table("post_platforms").upsert(row_data, on_conflict="post_id,platform").execute()
+            except Exception as e:
+                err_str = str(e)
+                if "remote_post_id" in err_str or "remote_post_url" in err_str or "schema cache" in err_str:
+                    logger.warning(
+                        f"Supabase post_platforms table missing remote_post_id column. "
+                        f"Falling back to published_url. Please run migration 004_fix_post_platforms_remote_id.sql. Error: {e}"
+                    )
+                    fallback_data: Dict[str, Any] = {
+                        "id": platform_row_id,
+                        "post_id": db_id,
+                        "platform": r.platform,
+                        "status": r.status,
+                        "published_url": r.remote_post_url,
+                        "error_message": r.error_message,
+                    }
+                    if r.status == "published":
+                        fallback_data["published_at"] = now_iso
+                    try:
+                        client.table("post_platforms").upsert(fallback_data, on_conflict="post_id,platform").execute()
+                    except Exception as fallback_err:
+                        logger.error(f"Failed to upsert post_platform fallback for {r.platform}: {fallback_err}")
+                else:
+                    logger.error(f"Failed to upsert post_platform for {r.platform}: {e}")
 
     return PublishResponse(
         post_id=payload.post_id,

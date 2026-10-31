@@ -1,3 +1,4 @@
+import { ErrorBoundary } from './components/ErrorBoundary';
 import React, { useState, useEffect } from 'react';
 import { Sidebar, NavPage } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -312,29 +313,17 @@ export const App: React.FC = () => {
 
   // Dynamic handlers
   const handlePostCreated = (newPost: SocialPost) => {
-    setPosts((prev) => [newPost, ...prev]);
-
-    // Persist durably to Supabase via FastAPI and trigger publish if published
-    api.savePost(newPost).then(() => {
-      if (newPost.status === 'published') {
-        api.publishPost(newPost.id, newPost.platforms, true, newPost.content, newPost.mediaUrl).then((res) => {
-          if (res.success) {
-            showToast('Post published across all channels!');
-          } else {
-            showToast(res.message || 'Publishing completed with warnings.');
-          }
-        }).catch((err) => {
-          console.error('Publish dispatch error:', err);
-          showToast(`Publish notice: ${err.message}`);
-        });
-      }
-    }).catch((err) => {
-      console.error('Failed to save post to backend persistence:', err);
-      showToast('Warning: Post saved locally, remote database sync pending.');
+    // Upsert post into state (replace existing if id matches, otherwise prepend)
+    setPosts((prev) => {
+      const filtered = prev.filter((p) => p.id !== newPost.id);
+      return [newPost, ...filtered];
     });
 
-    // If post is scheduled, queue it into the backend durable scheduler
-    if (newPost.status === 'scheduled') {
+    if (newPost.status === 'published') {
+      showToast('Post published successfully!');
+    } else if (newPost.status === 'scheduled') {
+      showToast('Post scheduled for delivery!');
+      // If post is scheduled, queue it into the backend durable scheduler
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(10, 0, 0, 0);
@@ -343,11 +332,13 @@ export const App: React.FC = () => {
         post_id: newPost.id,
         content: newPost.content,
         platforms: newPost.platforms,
-        scheduled_time: tomorrow.toISOString(),
+        scheduled_time: newPost.scheduledAt || tomorrow.toISOString(),
         media_url: newPost.mediaUrl,
       }).catch((err) => {
         console.warn('Backend schedule queue note:', err);
       });
+    } else {
+      showToast('Draft post saved.');
     }
 
     const newNotif: NotificationItem = {
@@ -708,6 +699,7 @@ export const App: React.FC = () => {
 
         {/* Dynamic Page Content */}
         <main className="page-content-body">
+          <ErrorBoundary onReset={() => navigateTo('dashboard')}>
           {currentPage === 'dashboard' && (
             <Dashboard
               metrics={mockMetrics}
@@ -766,6 +758,7 @@ export const App: React.FC = () => {
               onNavigate={navigateTo}
             />
           )}
+          </ErrorBoundary>
         </main>
       </div>
     </div>
