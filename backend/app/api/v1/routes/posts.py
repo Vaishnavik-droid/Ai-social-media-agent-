@@ -112,7 +112,7 @@ async def create_post(
     payload: PostCreate,
     token: Optional[str] = Depends(get_current_user_token),
 ):
-    post_id = payload.id or f"post-{int(datetime.datetime.now().timestamp() * 1000)}"
+    post_id = payload.id or str(uuid.uuid4())
     db_id = to_uuid(post_id)
     now_str = payload.created_at or datetime.datetime.now(datetime.timezone.utc).isoformat()
 
