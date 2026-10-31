@@ -1098,6 +1098,52 @@ input[type='file']::file-selector-button {
   border-color: #a5b4fc;
 }
 
+.btn-card-connect-pinterest {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #e60023 0%, #ad081b 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(230, 0, 35, 0.25);
+}
+
+.btn-card-connect-pinterest:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.btn-card-connect-youtube {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(255, 0, 0, 0.25);
+}
+
+.btn-card-connect-youtube:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
 .coming-soon-btn-group {
   width: 100%;
 }
@@ -3142,9 +3188,15 @@ input[type='file']::file-selector-button {
 
 .platform-selector-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   min-width: 0;
+}
+
+@media (min-width: 1350px) {
+  .platform-selector-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
 }
 
 .platform-selector-box {
@@ -3674,6 +3726,225 @@ input[type='file']::file-selector-button {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.create-post-avatar-pinterest {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #E60023;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(230, 0, 35, 0.25);
+}
+
+.create-post-avatar-youtube {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #FF0000;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(255, 0, 0, 0.25);
+}
+
+/* Pinterest Preview Specifics */
+.create-post-pinterest-media-wrap {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 12px 0;
+  background: #f1f5f9;
+}
+
+.create-post-pinterest-img {
+  width: 100%;
+  max-height: 380px;
+  object-fit: cover;
+  display: block;
+  border-radius: 12px;
+}
+
+.create-post-pinterest-save-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.create-post-pinterest-save-btn {
+  background: #E60023;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 24px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.create-post-pinterest-placeholder {
+  height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.create-post-pinterest-details {
+  padding: 4px 2px;
+}
+
+.create-post-pinterest-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 6px;
+}
+
+/* YouTube Preview Specifics */
+.create-post-youtube-player-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #0f172a;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.create-post-youtube-player {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.create-post-youtube-thumbnail-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.create-post-youtube-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.create-post-youtube-play-btn {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.create-post-youtube-duration {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.create-post-youtube-no-media {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  height: 100%;
+}
+
+.create-post-youtube-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+
+.create-post-youtube-channel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 10px;
+}
+
+.create-post-youtube-sub-btn {
+  background: #0f172a;
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 18px;
+  cursor: pointer;
+}
+
+.create-post-youtube-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.create-post-youtube-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f1f5f9;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+}
+
+.create-post-youtube-desc-box {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
+.create-post-youtube-views {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 6px;
 }
 
 .create-post-author-info {

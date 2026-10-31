@@ -36,6 +36,17 @@ class MetaAuthorizeResponse(BaseModel):
     platform: str
 
 
+class OAuthAuthorizeRequest(BaseModel):
+    platform: str = Field(..., description="'pinterest', 'youtube', 'facebook', or 'instagram'")
+    redirect_origin: Optional[str] = Field(default=None, description="Frontend origin for popup postMessage handshake")
+
+
+class OAuthAuthorizeResponse(BaseModel):
+    auth_url: str
+    state: str
+    platform: str
+
+
 class BlueskyConnectRequest(BaseModel):
     handle: str = Field(..., description="Bluesky handle, e.g. user.bsky.social")
     app_password: str = Field(..., description="Bluesky App Password from account settings")

@@ -275,6 +275,43 @@ export const api = {
   },
 
   /**
+   * Initiate Pinterest OAuth 2.0 flow
+   */
+  async initiatePinterestAuth(
+    redirectOrigin?: string
+  ): Promise<{ auth_url: string; state: string; platform: string }> {
+    return fetchWithAuth('/api/v1/connections/pinterest/authorize', {
+      method: 'POST',
+      body: JSON.stringify({
+        platform: 'pinterest',
+        redirect_origin: redirectOrigin || window.location.origin,
+      }),
+    });
+  },
+
+  /**
+   * Initiate Google / YouTube OAuth 2.0 flow
+   */
+  async initiateYouTubeAuth(
+    redirectOrigin?: string
+  ): Promise<{ auth_url: string; state: string; platform: string }> {
+    return fetchWithAuth('/api/v1/connections/youtube/authorize', {
+      method: 'POST',
+      body: JSON.stringify({
+        platform: 'youtube',
+        redirect_origin: redirectOrigin || window.location.origin,
+      }),
+    });
+  },
+
+  /**
+   * Fetch authenticated user's Pinterest boards
+   */
+  async getPinterestBoards(): Promise<{ boards: Array<{ id: string; name: string }> }> {
+    return fetchWithAuth<{ boards: Array<{ id: string; name: string }> }>('/api/v1/connections/pinterest/boards');
+  },
+
+  /**
    * Connect Bluesky via AT Protocol App Password
    */
   async connectBluesky(

@@ -42,7 +42,7 @@ interface PlatformDefinition {
   name: string;
   tagline: string;
   description: string;
-  type: 'meta_oauth' | 'modal' | 'coming_soon';
+  type: 'meta_oauth' | 'pinterest_oauth' | 'youtube_oauth' | 'modal';
 }
 
 const ALL_PLATFORMS: PlatformDefinition[] = [
@@ -79,14 +79,14 @@ const ALL_PLATFORMS: PlatformDefinition[] = [
     name: 'Pinterest',
     tagline: 'Visual Discovery',
     description: 'Pin high-impact graphics, product visuals, and destination link cards to your boards.',
-    type: 'coming_soon',
+    type: 'pinterest_oauth',
   },
   {
     id: 'youtube',
     name: 'YouTube',
     tagline: 'Video & Shorts',
     description: 'Upload video content, shorts, descriptions, and tags directly to your YouTube channel.',
-    type: 'coming_soon',
+    type: 'youtube_oauth',
   },
 ];
 
@@ -131,7 +131,7 @@ export const Platforms: React.FC<PlatformsProps> = ({
             lastVerifiedAt: p.lastVerifiedAt,
             accountId: p.accountId,
             accountName: p.accountName,
-            isComingSoon: p.id === 'pinterest' || p.id === 'youtube',
+            isComingSoon: false,
           }))
         );
       }
@@ -144,7 +144,7 @@ export const Platforms: React.FC<PlatformsProps> = ({
     fetchConnections();
   }, [fetchConnections]);
 
-  // Handle postMessage from Meta OAuth Popup
+  // Handle postMessage from OAuth Popup (Meta, Pinterest, YouTube)
   useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) {
@@ -155,18 +155,24 @@ export const Platforms: React.FC<PlatformsProps> = ({
       if (!data || typeof data !== 'object') return;
 
       if (data.type === 'OMNIPULSE_OAUTH_SUCCESS') {
-        const platName = data.platform === 'instagram' ? 'Instagram' : 'Facebook';
+        const platMap: Record<string, string> = {
+          facebook: 'Facebook',
+          instagram: 'Instagram',
+          pinterest: 'Pinterest',
+          youtube: 'YouTube',
+        };
+        const platName = platMap[data.platform] || data.platform || 'Platform';
         if (onToast) {
           onToast(`🎉 ${platName} connected successfully (${data.handle || 'verified'})!`);
         }
         setActionLoading((prev) => ({ ...prev, [data.platform]: false }));
         fetchConnections();
       } else if (data.type === 'OMNIPULSE_OAUTH_ERROR') {
-        const platName = data.platform ? data.platform.toUpperCase() : 'Meta';
+        const platName = data.platform ? data.platform.toUpperCase() : 'OAuth';
         if (onToast) {
           onToast(`✕ ${platName} Connection Error: ${data.error || 'Authorization failed'}`);
         }
-        setActionLoading((prev) => ({ ...prev, [data.platform || 'facebook']: false }));
+        setActionLoading((prev) => ({ ...prev, [data.platform || 'oauth']: false }));
       }
     };
 
@@ -174,12 +180,20 @@ export const Platforms: React.FC<PlatformsProps> = ({
     return () => window.removeEventListener('message', handleOAuthMessage);
   }, [onToast, fetchConnections]);
 
-  // Initiate Meta OAuth in Popup
-  const handleConnectMeta = async (platform: 'facebook' | 'instagram') => {
+  // Initiate OAuth in Popup (Facebook, Instagram, Pinterest, YouTube)
+  const handleConnectOAuth = async (platform: 'facebook' | 'instagram' | 'pinterest' | 'youtube') => {
     setActionLoading((prev) => ({ ...prev, [platform]: true }));
 
     try {
-      const res = await api.initiateMetaAuth(platform, window.location.origin);
+      let res: { auth_url: string };
+      if (platform === 'pinterest') {
+        res = await api.initiatePinterestAuth(window.location.origin);
+      } else if (platform === 'youtube') {
+        res = await api.initiateYouTubeAuth(window.location.origin);
+      } else {
+        res = await api.initiateMetaAuth(platform, window.location.origin);
+      }
+
       if (!res.auth_url) {
         throw new Error('Backend did not return an authorization URL.');
       }
@@ -191,18 +205,25 @@ export const Platforms: React.FC<PlatformsProps> = ({
 
       const popup = window.open(
         res.auth_url,
-        `OmniPulse_Meta_Auth_${platform}`,
+        `OmniPulse_Auth_${platform}`,
         `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,status=yes`
       );
 
       if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-        alert('Popup was blocked by your browser. Please allow popups for OmniPulse to authorize Meta.');
+        alert(`Popup was blocked by your browser. Please allow popups for OmniPulse to authorize ${platform}.`);
         setActionLoading((prev) => ({ ...prev, [platform]: false }));
         return;
       }
 
       if (onToast) {
-        onToast(`Meta authorization window opened. Complete sign-in in the popup.`);
+        const platMap: Record<string, string> = {
+          facebook: 'Facebook',
+          instagram: 'Instagram',
+          pinterest: 'Pinterest',
+          youtube: 'YouTube',
+        };
+        const platName = platMap[platform] || platform;
+        onToast(`${platName} authorization window opened. Complete sign-in in the popup.`);
       }
 
       const checkPopup = setInterval(() => {
@@ -213,7 +234,7 @@ export const Platforms: React.FC<PlatformsProps> = ({
       }, 1000);
     } catch (err: any) {
       setActionLoading((prev) => ({ ...prev, [platform]: false }));
-      const msg = err?.message || 'Failed to initiate Meta OAuth.';
+      const msg = err?.message || `Failed to initiate ${platform} authorization.`;
       if (onToast) {
         onToast(`✕ Error: ${msg}`);
       } else {
@@ -316,35 +337,26 @@ export const Platforms: React.FC<PlatformsProps> = ({
 
   return (
     <div className="platforms-page">
-      {/* Page Header */}
+      {/* Top Action & Status Bar */}
       <div className="platforms-header">
-        <div className="platforms-header-left">
-          <h1 className="platforms-title">Connected Platforms</h1>
-          <p className="platforms-subtitle">
-            Manage your social media accounts and publishing connections.
-          </p>
+        {/* Connection Summary Pill */}
+        <div className="platform-summary-badge" title="Live connection count from server">
+          <span className={`summary-dot ${connectedCount > 0 ? 'active' : ''}`}></span>
+          <span className="summary-count-text">
+            <strong>{connectedCount}</strong> of <strong>{totalCount}</strong> platforms connected
+          </span>
         </div>
 
-        <div className="platforms-header-right">
-          {/* Connection Summary Pill */}
-          <div className="platform-summary-badge" title="Live connection count from server">
-            <span className={`summary-dot ${connectedCount > 0 ? 'active' : ''}`}></span>
-            <span className="summary-count-text">
-              <strong>{connectedCount}</strong> of <strong>{totalCount}</strong> platforms connected
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={fetchConnections}
-            disabled={isLoading}
-            className="btn-refresh-all"
-            title="Refresh connection statuses from server"
-          >
-            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-            <span>Refresh All</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={fetchConnections}
+          disabled={isLoading}
+          className="btn-refresh-all"
+          title="Refresh connection statuses from server"
+        >
+          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+          <span>Refresh All</span>
+        </button>
       </div>
 
       {/* Security Architecture Badge */}
@@ -365,7 +377,6 @@ export const Platforms: React.FC<PlatformsProps> = ({
         {ALL_PLATFORMS.map((def) => {
           const current = platformList.find((item) => item.id === def.id);
           const isConnected = current?.status === 'connected';
-          const isComingSoon = def.type === 'coming_soon' || current?.status === 'coming_soon';
           const isError = current?.status === 'error';
           const isActionLoading = Boolean(actionLoading[def.id]);
 
@@ -396,7 +407,7 @@ export const Platforms: React.FC<PlatformsProps> = ({
             <div
               key={def.id}
               className={`platform-card ${
-                isConnected ? 'is-connected' : isComingSoon ? 'is-coming-soon' : 'is-disconnected'
+                isConnected ? 'is-connected' : isError ? 'is-error' : 'is-disconnected'
               }`}
             >
               <div className="platform-card-main">
@@ -418,11 +429,6 @@ export const Platforms: React.FC<PlatformsProps> = ({
                       <span className="status-pill status-pill-connected" title="Active & ready for publishing">
                         <span className="status-dot green"></span>
                         Connected
-                      </span>
-                    ) : isComingSoon ? (
-                      <span className="status-pill status-pill-coming-soon" title="Integration in progress">
-                        <Sparkles size={11} className="mr-1 text-purple-600" />
-                        Coming soon
                       </span>
                     ) : isError ? (
                       <span className="status-pill status-pill-error" title="Verification error">
@@ -465,15 +471,6 @@ export const Platforms: React.FC<PlatformsProps> = ({
                         )}
                       </div>
                     </div>
-                  ) : isComingSoon ? (
-                    <div className="identity-coming-soon-box">
-                      <Clock size={13} className="text-purple-500 flex-shrink-0" />
-                      <span className="text-xs text-slate-500">
-                        {def.id === 'pinterest'
-                          ? 'Pinterest OAuth & Pin publishing integration in development.'
-                          : 'Google OAuth & YouTube video upload integration in development.'}
-                      </span>
-                    </div>
                   ) : (
                     <div className="identity-disconnected-box">
                       <span className="text-xs text-slate-400">
@@ -509,24 +506,12 @@ export const Platforms: React.FC<PlatformsProps> = ({
                       <span>Disconnect</span>
                     </button>
                   </div>
-                ) : isComingSoon ? (
-                  <div className="coming-soon-btn-group">
-                    <button
-                      type="button"
-                      disabled
-                      className="btn-card-coming-soon"
-                      title="This platform integration is coming soon"
-                    >
-                      <Lock size={12} />
-                      <span>Coming soon</span>
-                    </button>
-                  </div>
                 ) : (
                   <div className="disconnected-btn-group">
                     {def.type === 'meta_oauth' ? (
                       <button
                         type="button"
-                        onClick={() => handleConnectMeta(def.id as 'facebook' | 'instagram')}
+                        onClick={() => handleConnectOAuth(def.id as 'facebook' | 'instagram')}
                         disabled={isActionLoading}
                         className="btn-card-connect-meta"
                       >
@@ -539,6 +524,44 @@ export const Platforms: React.FC<PlatformsProps> = ({
                           <>
                             <Globe size={14} />
                             <span>Connect with Meta</span>
+                          </>
+                        )}
+                      </button>
+                    ) : def.type === 'pinterest_oauth' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleConnectOAuth('pinterest')}
+                        disabled={isActionLoading}
+                        className="btn-card-connect-pinterest"
+                      >
+                        {isActionLoading ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <PlatformIcon platform="pinterest" size={15} />
+                            <span>Connect Pinterest</span>
+                          </>
+                        )}
+                      </button>
+                    ) : def.type === 'youtube_oauth' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleConnectOAuth('youtube')}
+                        disabled={isActionLoading}
+                        className="btn-card-connect-youtube"
+                      >
+                        {isActionLoading ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <PlatformIcon platform="youtube" size={15} />
+                            <span>Connect YouTube</span>
                           </>
                         )}
                       </button>

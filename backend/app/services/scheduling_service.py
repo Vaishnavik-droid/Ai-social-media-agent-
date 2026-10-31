@@ -9,6 +9,8 @@ from app.platforms.bluesky import bluesky_adapter
 from app.platforms.linkedin import linkedin_adapter
 from app.platforms.facebook import facebook_adapter
 from app.platforms.instagram import instagram_adapter
+from app.platforms.pinterest import pinterest_adapter
+from app.platforms.youtube import youtube_adapter
 from app.schemas.publishing import PlatformResult
 from app.schemas.scheduling import ScheduleCreate, ScheduleResponse, SchedulerHealthResponse
 from app.api.v1.routes.posts import _MEMORY_POSTS, _get_supabase_client, to_uuid

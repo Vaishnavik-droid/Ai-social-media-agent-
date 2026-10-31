@@ -13,6 +13,8 @@ from app.platforms.bluesky import bluesky_adapter
 from app.platforms.facebook import facebook_adapter
 from app.platforms.instagram import instagram_adapter
 from app.platforms.linkedin import linkedin_adapter
+from app.platforms.pinterest import pinterest_adapter
+from app.platforms.youtube import youtube_adapter
 from app.schemas.connection import (
     BlueskyConnectRequest,
     ConnectionDisconnectResponse,
@@ -23,6 +25,8 @@ from app.schemas.connection import (
     LinkedInConnectRequest,
     MetaAuthorizeRequest,
     MetaAuthorizeResponse,
+    OAuthAuthorizeRequest,
+    OAuthAuthorizeResponse,
 )
 from app.services.credential_service import credential_service
 
@@ -451,6 +455,345 @@ async def handle_meta_oauth_callback(
         )
 
 
+
+# =============================================================================
+# 2B. Pinterest OAuth Endpoints
+# =============================================================================
+
+@router.post("/pinterest/authorize", response_model=OAuthAuthorizeResponse)
+async def initiate_pinterest_oauth(request: Request, payload: Optional[OAuthAuthorizeRequest] = None):
+    app_id = settings.PINTEREST_APP_ID.strip()
+    if not app_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pinterest App ID is not configured on the backend. Please add PINTEREST_APP_ID in platform_credentials.env.",
+        )
+
+    if settings.PINTEREST_REDIRECT_URI:
+        callback_uri = settings.PINTEREST_REDIRECT_URI.strip()
+    else:
+        base_url = str(request.base_url).rstrip("/")
+        callback_uri = f"{base_url}/api/v1/connections/pinterest/callback"
+
+    origin = _sanitize_origin((payload.redirect_origin if payload else None) or request.headers.get("origin"))
+
+    state_id = f"pin_{secrets.token_urlsafe(24)}"
+    await credential_service.save_oauth_state(
+        state_id=state_id,
+        platform="pinterest",
+        redirect_origin=origin,
+    )
+
+    scopes = "boards:read,boards:write,pins:read,pins:write,user_accounts:read"
+    auth_url = (
+        f"https://www.pinterest.com/oauth/?"
+        f"client_id={quote(app_id)}"
+        f"&redirect_uri={quote(callback_uri)}"
+        f"&response_type=code"
+        f"&scope={quote(scopes)}"
+        f"&state={quote(state_id)}"
+    )
+
+    return OAuthAuthorizeResponse(
+        auth_url=auth_url,
+        state=state_id,
+        platform="pinterest",
+    )
+
+
+@router.get("/pinterest/callback", response_class=HTMLResponse)
+async def pinterest_oauth_callback(
+    request: Request,
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    error_description: Optional[str] = Query(None),
+):
+    target_origin = "http://localhost:3000"
+    if error or error_description:
+        return _render_popup_html(
+            success=False,
+            platform="pinterest",
+            target_origin=target_origin,
+            error_message=error_description or error or "User cancelled Pinterest authorization.",
+        )
+
+    if not code or not state:
+        return _render_popup_html(
+            success=False,
+            platform="pinterest",
+            target_origin=target_origin,
+            error_message="Missing authorization code or session state parameter.",
+        )
+
+    state_data = await credential_service.get_and_consume_oauth_state(state)
+    if not state_data:
+        return _render_popup_html(
+            success=False,
+            platform="pinterest",
+            target_origin=target_origin,
+            error_message="Invalid or expired OAuth state session. Please initiate login again.",
+        )
+
+    target_origin = state_data.get("redirect_origin") or target_origin
+
+    app_id = settings.PINTEREST_APP_ID.strip()
+    app_secret = settings.PINTEREST_APP_SECRET.strip()
+    if not app_id or not app_secret:
+        return _render_popup_html(
+            success=False,
+            platform="pinterest",
+            target_origin=target_origin,
+            error_message="Pinterest App credentials are not configured on the backend.",
+        )
+
+    if settings.PINTEREST_REDIRECT_URI:
+        callback_uri = settings.PINTEREST_REDIRECT_URI.strip()
+    else:
+        base_url = str(request.base_url).rstrip("/")
+        callback_uri = f"{base_url}/api/v1/connections/pinterest/callback"
+
+    try:
+        import base64
+        auth_header = base64.b64encode(f"{app_id}:{app_secret}".encode("utf-8")).decode("utf-8")
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            token_resp = await client.post(
+                "https://api.pinterest.com/v5/oauth/token",
+                headers={
+                    "Authorization": f"Basic {auth_header}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": callback_uri,
+                },
+            )
+
+            if token_resp.status_code != 200:
+                return _render_popup_html(
+                    success=False,
+                    platform="pinterest",
+                    target_origin=target_origin,
+                    error_message=f"Failed to exchange authorization code: {token_resp.text}",
+                )
+
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+            refresh_token = token_data.get("refresh_token")
+
+            user_resp = await client.get(
+                "https://api.pinterest.com/v5/user_account",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+
+            username = "Pinterest Account"
+            account_id = None
+            if user_resp.status_code == 200:
+                user_data = user_resp.json()
+                username = user_data.get("username") or user_data.get("id") or username
+                account_id = str(user_data.get("id") or username)
+
+            handle = f"@{username.lstrip('@')}"
+            await credential_service.save_connection(
+                platform="pinterest",
+                access_token=access_token,
+                refresh_token=refresh_token,
+                account_id=account_id or username,
+                account_name=handle,
+                handle=handle,
+                metadata={"token_type": token_data.get("token_type", "bearer")},
+            )
+
+            return _render_popup_html(
+                success=True,
+                platform="pinterest",
+                target_origin=target_origin,
+                handle=handle,
+            )
+    except Exception as e:
+        logger.error(f"Error during Pinterest OAuth callback processing: {e}", exc_info=True)
+        return _render_popup_html(
+            success=False,
+            platform="pinterest",
+            target_origin=target_origin,
+            error_message=f"Internal error connecting Pinterest: {str(e)}",
+        )
+
+
+# =============================================================================
+# 2C. YouTube OAuth Endpoints
+# =============================================================================
+
+@router.post("/youtube/authorize", response_model=OAuthAuthorizeResponse)
+async def initiate_youtube_oauth(request: Request, payload: Optional[OAuthAuthorizeRequest] = None):
+    client_id = settings.GOOGLE_CLIENT_ID.strip()
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google Client ID is not configured on the backend. Please add GOOGLE_CLIENT_ID in platform_credentials.env.",
+        )
+
+    if settings.YOUTUBE_REDIRECT_URI:
+        callback_uri = settings.YOUTUBE_REDIRECT_URI.strip()
+    else:
+        base_url = str(request.base_url).rstrip("/")
+        callback_uri = f"{base_url}/api/v1/connections/youtube/callback"
+
+    origin = _sanitize_origin((payload.redirect_origin if payload else None) or request.headers.get("origin"))
+
+    state_id = f"yt_{secrets.token_urlsafe(24)}"
+    await credential_service.save_oauth_state(
+        state_id=state_id,
+        platform="youtube",
+        redirect_origin=origin,
+    )
+
+    scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={quote(client_id)}"
+        f"&redirect_uri={quote(callback_uri)}"
+        f"&response_type=code"
+        f"&scope={quote(scopes)}"
+        f"&access_type=offline"
+        f"&prompt=consent"
+        f"&state={quote(state_id)}"
+    )
+
+    return OAuthAuthorizeResponse(
+        auth_url=auth_url,
+        state=state_id,
+        platform="youtube",
+    )
+
+
+@router.get("/youtube/callback", response_class=HTMLResponse)
+async def youtube_oauth_callback(
+    request: Request,
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    error_description: Optional[str] = Query(None),
+):
+    target_origin = "http://localhost:3000"
+    if error or error_description:
+        return _render_popup_html(
+            success=False,
+            platform="youtube",
+            target_origin=target_origin,
+            error_message=error_description or error or "User cancelled Google authorization.",
+        )
+
+    if not code or not state:
+        return _render_popup_html(
+            success=False,
+            platform="youtube",
+            target_origin=target_origin,
+            error_message="Missing authorization code or session state parameter.",
+        )
+
+    state_data = await credential_service.get_and_consume_oauth_state(state)
+    if not state_data:
+        return _render_popup_html(
+            success=False,
+            platform="youtube",
+            target_origin=target_origin,
+            error_message="Invalid or expired OAuth state session. Please initiate login again.",
+        )
+
+    target_origin = state_data.get("redirect_origin") or target_origin
+
+    client_id = settings.GOOGLE_CLIENT_ID.strip()
+    client_secret = settings.GOOGLE_CLIENT_SECRET.strip()
+    if not client_id or not client_secret:
+        return _render_popup_html(
+            success=False,
+            platform="youtube",
+            target_origin=target_origin,
+            error_message="Google/YouTube client credentials are not configured on the backend.",
+        )
+
+    if settings.YOUTUBE_REDIRECT_URI:
+        callback_uri = settings.YOUTUBE_REDIRECT_URI.strip()
+    else:
+        base_url = str(request.base_url).rstrip("/")
+        callback_uri = f"{base_url}/api/v1/connections/youtube/callback"
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            token_resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": callback_uri,
+                },
+            )
+
+            if token_resp.status_code != 200:
+                return _render_popup_html(
+                    success=False,
+                    platform="youtube",
+                    target_origin=target_origin,
+                    error_message=f"Failed to exchange Google code: {token_resp.text}",
+                )
+
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+            refresh_token = token_data.get("refresh_token")
+
+            chan_resp = await client.get(
+                "https://www.googleapis.com/youtube/v3/channels",
+                params={"part": "snippet", "mine": "true"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+
+            channel_title = "YouTube Channel"
+            channel_id = None
+            if chan_resp.status_code == 200:
+                items = chan_resp.json().get("items", [])
+                if items:
+                    snippet = items[0].get("snippet", {})
+                    channel_title = snippet.get("title") or channel_title
+                    channel_id = items[0].get("id")
+
+            handle = channel_title
+            await credential_service.save_connection(
+                platform="youtube",
+                access_token=access_token,
+                refresh_token=refresh_token,
+                account_id=channel_id or channel_title,
+                account_name=channel_title,
+                handle=handle,
+                metadata={"token_type": "Bearer"},
+            )
+
+            return _render_popup_html(
+                success=True,
+                platform="youtube",
+                target_origin=target_origin,
+                handle=handle,
+            )
+    except Exception as e:
+        logger.error(f"Error during YouTube OAuth callback processing: {e}", exc_info=True)
+        return _render_popup_html(
+            success=False,
+            platform="youtube",
+            target_origin=target_origin,
+            error_message=f"Internal error connecting YouTube: {str(e)}",
+        )
+
+
+@router.get("/pinterest/boards")
+async def get_pinterest_boards():
+    boards = await pinterest_adapter.get_boards()
+    return {"boards": boards}
+
 # =============================================================================
 # 3. Direct Platform Connect Endpoints (Bluesky & LinkedIn)
 # =============================================================================
@@ -640,20 +983,24 @@ async def verify_platform_connection(platform: str, payload: Optional[Connection
             account_name=conn.get("handle"),
         )
     elif p_clean == "pinterest":
+        is_valid = await pinterest_adapter.validate_connection()
+        conn = credential_service.get_safe_connection_item("pinterest")
         return ConnectionVerifyResponse(
             platform="pinterest",
-            is_valid=False,
-            status="coming_soon",
-            message="Pinterest integration is currently in development (Coming soon). OAuth and Pin publishing will be available in a future release.",
-            account_name=None,
+            is_valid=is_valid,
+            status="connected" if is_valid else "disconnected",
+            message="Pinterest account verified successfully!" if is_valid else "Pinterest connection verification failed. Please reconnect.",
+            account_name=conn.get("handle"),
         )
     elif p_clean == "youtube":
+        is_valid = await youtube_adapter.validate_connection()
+        conn = credential_service.get_safe_connection_item("youtube")
         return ConnectionVerifyResponse(
             platform="youtube",
-            is_valid=False,
-            status="coming_soon",
-            message="YouTube integration is currently in development (Coming soon). Google OAuth and video upload will be available in a future release.",
-            account_name=None,
+            is_valid=is_valid,
+            status="connected" if is_valid else "disconnected",
+            message="YouTube channel verified successfully!" if is_valid else "YouTube connection verification failed. Please reconnect.",
+            account_name=conn.get("handle"),
         )
 
     return ConnectionVerifyResponse(

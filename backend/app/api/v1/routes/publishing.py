@@ -8,6 +8,8 @@ from app.platforms.bluesky import bluesky_adapter
 from app.platforms.linkedin import linkedin_adapter
 from app.platforms.facebook import facebook_adapter
 from app.platforms.instagram import instagram_adapter
+from app.platforms.pinterest import pinterest_adapter
+from app.platforms.youtube import youtube_adapter
 from app.schemas.publishing import PlatformResult, PublishRequest, PublishResponse
 from app.api.v1.routes.posts import _MEMORY_POSTS, _get_supabase_client, to_uuid
 
@@ -20,6 +22,8 @@ ADAPTERS: Dict[str, BasePlatformAdapter] = {
     "linkedin": linkedin_adapter,
     "facebook": facebook_adapter,
     "instagram": instagram_adapter,
+    "pinterest": pinterest_adapter,
+    "youtube": youtube_adapter,
 }
 
 
@@ -27,7 +31,8 @@ ADAPTERS: Dict[str, BasePlatformAdapter] = {
 async def publish_post_endpoint(payload: PublishRequest):
     """
     Publish a post to selected social platforms.
-    Routes to real adapters (Bluesky, LinkedIn, Facebook, Instagram) and records per-platform results.
+    Routes to real adapters (Bluesky, LinkedIn, Facebook, Instagram, Pinterest, YouTube)
+    and records per-platform results.
     Supports dry_run=True for safe testing and simulation.
     """
     db_id = to_uuid(payload.post_id)
@@ -80,7 +85,7 @@ async def publish_post_endpoint(payload: PublishRequest):
                 PlatformResult(
                     platform=platform,
                     status="failed",
-                    error_message=f"Platform adapter for '{platform}' requires API credentials in backend/.env",
+                    error_message=f"Platform adapter for '{platform}' requires API credentials in platform_credentials.env",
                 )
             )
 
@@ -103,15 +108,12 @@ async def publish_post_endpoint(payload: PublishRequest):
                     "error_message": r.error_message,
                 }).execute()
         except Exception as e:
-            logger.warning(f"Could not persist publish status in Supabase: {e}")
-
-    is_any_mock = any(r.is_mock for r in results) or effective_dry_run
-    mode_text = " [MOCK / DRY-RUN MODE]" if is_any_mock else ""
+            logger.error(f"Failed to update post status in Supabase: {e}")
 
     return PublishResponse(
         post_id=payload.post_id,
         success=any_success,
-        message=f"Publish job completed{mode_text}." if any_success else f"One or more platforms failed to publish{mode_text}.",
+        message=f"Post dispatched to {len(payload.platforms)} platform(s): {overall_status}",
         results=results,
-        is_mock=is_any_mock,
+        is_mock=effective_dry_run,
     )

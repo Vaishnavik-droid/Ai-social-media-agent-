@@ -229,30 +229,32 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     }, 300);
   };
 
-  // Media validation (Strictly JPG, JPEG, PNG; Max 10MB)
+  // Media validation (JPG, JPEG, PNG, MP4, WebM; Max 50MB)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const allowedTypes = ['image/jpeg', 'image/png'];
+    const allowedTypes = ['image/jpeg', 'image/png', 'video/mp4', 'video/webm'];
     const fileName = file.name.toLowerCase();
     const isAllowedExt =
       fileName.endsWith('.jpg') ||
       fileName.endsWith('.jpeg') ||
-      fileName.endsWith('.png');
+      fileName.endsWith('.png') ||
+      fileName.endsWith('.mp4') ||
+      fileName.endsWith('.webm');
 
-    const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
+    const maxSizeBytes = 50 * 1024 * 1024; // 50 MB
 
     if (!allowedTypes.includes(file.type) && !isAllowedExt) {
-      setUploadError('Unsupported file format. Please upload JPG, JPEG, or PNG only.');
+      setUploadError('Unsupported file format. Please upload JPG, PNG, MP4, or WebM.');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     if (file.size > maxSizeBytes) {
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
-      setUploadError(`File is too large (${fileSizeMB} MB). Maximum allowed size is 10 MB.`);
+      setUploadError(`File is too large (${fileSizeMB} MB). Maximum allowed size is 50 MB.`);
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -450,12 +452,12 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
   return (
     <div className="create-post-layout">
-      {/* Hidden file input restricted strictly to JPG, JPEG, PNG */}
+      {/* Hidden file input supporting images and video */}
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileChange}
-        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+        accept=".jpg,.jpeg,.png,image/jpeg,image/png,video/mp4,video/webm,.mp4,.webm"
         className="hidden"
       />
 
@@ -576,7 +578,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
           <div className="create-post-heading-row">
             <label className="create-post-label">5. Select Platforms</label>
             <span className="create-post-selected-count">
-              {selectedPlatforms.length} of 4 selected
+              {selectedPlatforms.length} of 6 selected
             </span>
           </div>
 
@@ -586,6 +588,8 @@ export const CreatePost: React.FC<CreatePostProps> = ({
               { id: 'linkedin' as Platform, name: 'LinkedIn' },
               { id: 'instagram' as Platform, name: 'Instagram' },
               { id: 'facebook' as Platform, name: 'Facebook' },
+              { id: 'pinterest' as Platform, name: 'Pinterest' },
+              { id: 'youtube' as Platform, name: 'YouTube' },
             ].map((p) => {
               const isSelected = selectedPlatforms.includes(p.id);
               return (
@@ -638,10 +642,10 @@ export const CreatePost: React.FC<CreatePostProps> = ({
             >
               <UploadCloud size={30} className="create-post-upload-icon" />
               <div className="create-post-upload-title">
-                Upload image (JPG, JPEG, PNG)
+                Upload image or video (JPG, PNG, MP4, WebM)
               </div>
               <div className="create-post-upload-subtitle">
-                Supported: JPG, JPEG, PNG (Max 10MB)
+                Supported: JPG, JPEG, PNG, MP4, WebM (Max 50MB)
               </div>
               <button type="button" className="create-post-upload-button">
                 Choose File
@@ -659,11 +663,19 @@ export const CreatePost: React.FC<CreatePostProps> = ({
                 >
                   <X size={14} />
                 </button>
-                <img
-                  src={mediaUrl}
-                  alt="Post attachment"
-                  className="create-post-preview-image"
-                />
+                {mediaUrl.includes('data:video') || mediaUrl.match(/\.(mp4|webm)($|\?)/i) ? (
+                  <video
+                    src={mediaUrl}
+                    controls
+                    className="create-post-preview-image"
+                  />
+                ) : (
+                  <img
+                    src={mediaUrl}
+                    alt="Post attachment"
+                    className="create-post-preview-image"
+                  />
+                )}
                 <div className="create-post-preview-actions">
                   <button
                     type="button"
@@ -821,7 +833,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         </div>
 
         <div className="create-post-tabs">
-          {(['bluesky', 'linkedin', 'instagram', 'facebook'] as Platform[]).map(
+          {(['bluesky', 'linkedin', 'instagram', 'facebook', 'pinterest', 'youtube'] as Platform[]).map(
             (platform) => {
               const isActive = activePreviewTab === platform;
               const labels: Record<Platform, string> = {
@@ -1115,6 +1127,148 @@ export const CreatePost: React.FC<CreatePostProps> = ({
                 <Share2 size={15} />
                 <span>Share</span>
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* 5. Pinterest Preview */}
+        {activePreviewTab === 'pinterest' && (
+          <div className="create-post-preview-card">
+            <div className="create-post-card-header">
+              <div className="create-post-card-author">
+                <div className="create-post-avatar-pinterest">
+                  P
+                </div>
+                <div className="create-post-author-info">
+                  <span className="create-post-author-name">
+                    {user.brandName || user.name}
+                  </span>
+                  <span className="create-post-author-sub">
+                    Saved to Board • Just now
+                  </span>
+                </div>
+              </div>
+              <div className="create-post-card-actions">
+                <button
+                  type="button"
+                  onClick={handleToggleEdit}
+                  className={`create-post-preview-pen-btn ${isEditingPreview ? 'create-post-preview-pen-btn-active' : ''}`}
+                  title={isEditingPreview ? "Save post changes" : "Edit post content"}
+                  aria-label="Edit post"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button type="button" className="create-post-preview-more-btn" title="More options">
+                  <MoreHorizontal size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="create-post-pinterest-media-wrap">
+              {mediaUrl ? (
+                mediaUrl.includes('data:video') || mediaUrl.match(/\.(mp4|webm)($|\?)/i) ? (
+                  <video src={mediaUrl} controls className="create-post-pinterest-img" />
+                ) : (
+                  <img src={mediaUrl} alt="Pin visual" className="create-post-pinterest-img" />
+                )
+              ) : (
+                <div className="create-post-pinterest-placeholder">
+                  <ImageIcon size={28} style={{ color: '#E60023', marginBottom: 8 }} />
+                  <span>Attach an image or video for Pinterest</span>
+                </div>
+              )}
+              <div className="create-post-pinterest-save-overlay">
+                <button type="button" className="create-post-pinterest-save-btn">
+                  Save
+                </button>
+              </div>
+            </div>
+
+            <div className="create-post-pinterest-details">
+              <h4 className="create-post-pinterest-title">{topic || user.brandName || 'Untitled Pin'}</h4>
+              {renderPreviewContent()}
+            </div>
+
+            <div className="create-post-card-footer" style={{ borderTop: '1px solid #f1f5f9', paddingTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
+                <PlatformIcon platform="pinterest" size={16} />
+                <span>pinterest.com/pin/...</span>
+              </div>
+              <button type="button" className="create-post-footer-btn" style={{ marginLeft: 'auto' }}>
+                <Share2 size={15} />
+                <span>Share</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 6. YouTube Preview */}
+        {activePreviewTab === 'youtube' && (
+          <div className="create-post-preview-card">
+            <div className="create-post-youtube-player-wrap">
+              {mediaUrl ? (
+                mediaUrl.includes('data:video') || mediaUrl.match(/\.(mp4|webm)($|\?)/i) ? (
+                  <video src={mediaUrl} controls className="create-post-youtube-player" />
+                ) : (
+                  <div className="create-post-youtube-thumbnail-wrap">
+                    <img src={mediaUrl} alt="Video thumbnail" className="create-post-youtube-thumbnail" />
+                    <div className="create-post-youtube-play-btn">
+                      <svg viewBox="0 0 24 24" width="28" height="28" fill="#ffffff">
+                        <polygon points="6 3 20 12 6 21 6 3" />
+                      </svg>
+                    </div>
+                    <span className="create-post-youtube-duration">Preview</span>
+                  </div>
+                )
+              ) : (
+                <div className="create-post-youtube-no-media">
+                  <PlatformIcon platform="youtube" size={36} />
+                  <span style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+                    Attach a video or thumbnail for YouTube
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <h3 className="create-post-youtube-title">
+              {topic || 'AI in Social Media Marketing — Strategic Content Workflows'}
+            </h3>
+
+            <div className="create-post-youtube-channel-row">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="create-post-avatar-youtube">
+                  ▶
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                    {user.brandName || user.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>
+                    1.28K subscribers
+                  </div>
+                </div>
+                <button type="button" className="create-post-youtube-sub-btn">
+                  Subscribe
+                </button>
+              </div>
+
+              <div className="create-post-youtube-actions">
+                <button type="button" className="create-post-youtube-action-pill">
+                  <ThumbsUp size={13} />
+                  <span>248</span>
+                </button>
+                <button type="button" className="create-post-youtube-action-pill">
+                  <Share2 size={13} />
+                  <span>Share</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="create-post-youtube-desc-box">
+              <div className="create-post-youtube-views">
+                2,481 views • Premiering today #AIMarketing
+              </div>
+              {renderPreviewContent()}
             </div>
           </div>
         )}

@@ -194,27 +194,6 @@ class CredentialService:
         }
         display_name = names.get(p_clean, p_clean.capitalize())
 
-        # Coming soon platforms are defined in the registry but cannot be connected yet
-        if p_clean in ["pinterest", "youtube"]:
-            return {
-                "id": p_clean,
-                "name": display_name,
-                "handle": "Coming Soon",
-                "status": "coming_soon",
-                "connected_user": None,
-                "connectedUser": None,
-                "account_id": None,
-                "accountId": None,
-                "account_name": None,
-                "accountName": None,
-                "last_verified_at": None,
-                "lastVerifiedAt": None,
-                "is_configured": False,
-                "isConfigured": False,
-                "is_coming_soon": True,
-                "isComingSoon": True,
-            }
-
         # 1. Check database or memory record
         record = _MEMORY_CONNECTIONS.get(p_clean)
         client = _get_supabase_client()

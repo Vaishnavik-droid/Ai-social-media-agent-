@@ -208,17 +208,17 @@ export const mockConnectedPlatforms: ConnectedPlatform[] = [
   {
     id: 'pinterest',
     name: 'Pinterest',
-    handle: 'Coming Soon',
-    status: 'coming_soon',
+    handle: 'Not Connected',
+    status: 'disconnected',
     connectedUser: '',
-    isComingSoon: true
+    isComingSoon: false
   },
   {
     id: 'youtube',
     name: 'YouTube',
-    handle: 'Coming Soon',
-    status: 'coming_soon',
+    handle: 'Not Connected',
+    status: 'disconnected',
     connectedUser: '',
-    isComingSoon: true
+    isComingSoon: false
   }
 ];
