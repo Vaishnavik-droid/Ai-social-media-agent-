@@ -18,9 +18,16 @@ class FacebookAdapter(BasePlatformAdapter):
     def platform_name(self) -> str:
         return "facebook"
 
+    async def _resolve_credentials(self) -> tuple[str, str]:
+        from app.services.credential_service import credential_service
+        creds = await credential_service.get_credentials("facebook")
+        if creds and creds.get("access_token") and creds.get("account_id"):
+            return creds["access_token"], creds["account_id"]
+        # Legacy static tokens are eliminated from active auth/publishing paths
+        return "", ""
+
     async def validate_connection(self) -> bool:
-        token = settings.FACEBOOK_PAGE_ACCESS_TOKEN.strip()
-        page_id = settings.FACEBOOK_PAGE_ID.strip()
+        token, page_id = await self._resolve_credentials()
 
         if not token or not page_id:
             return False
@@ -53,7 +60,7 @@ class FacebookAdapter(BasePlatformAdapter):
         # 2. Dry-Run / Mock Publishing Mode
         if dry_run:
             simulated_id = f"mock_fb_{int(datetime.datetime.now().timestamp())}"
-            page_id = settings.FACEBOOK_PAGE_ID.strip() or "mockpage"
+            page_id = "mockpage"
             return PlatformResult(
                 platform=self.platform_name,
                 status="published",
@@ -64,21 +71,20 @@ class FacebookAdapter(BasePlatformAdapter):
             )
 
         # 3. Live Facebook Graph API Dispatch
-        token = settings.FACEBOOK_PAGE_ACCESS_TOKEN.strip()
-        page_id = settings.FACEBOOK_PAGE_ID.strip()
+        token, page_id = await self._resolve_credentials()
 
         if not token:
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Missing FACEBOOK_PAGE_ACCESS_TOKEN in backend/.env",
+                error_message="Missing Facebook credentials. Please connect your Facebook Page.",
             )
 
         if not page_id:
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Missing FACEBOOK_PAGE_ID in backend/.env",
+                error_message="Missing Facebook Page ID. Please connect your Facebook Page.",
             )
 
         # Resolve relative public URLs into fully qualified public HTTPS URLs

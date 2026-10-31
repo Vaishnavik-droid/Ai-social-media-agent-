@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 class BlueskyAdapter(BasePlatformAdapter):
-    BSKY_HOST = "https://bsky.social"
+    @property
+    def BSKY_HOST(self) -> str:
+        return (settings.BLUESKY_SERVICE_URL or "https://bsky.social").rstrip("/")
 
     def __init__(self):
         self._cached_session: Optional[dict] = None
@@ -44,12 +46,18 @@ class BlueskyAdapter(BasePlatformAdapter):
             logger.warning(f"Failed to fetch or decode media for Bluesky from {media_url[:60]}: {e}")
         return None, None
 
+    async def _resolve_credentials(self) -> tuple[str, str]:
+        from app.services.credential_service import credential_service
+        creds = await credential_service.get_credentials("bluesky")
+        if creds and creds.get("access_token") and creds.get("handle"):
+            return creds["handle"].lstrip("@"), creds["access_token"]
+        return settings.BLUESKY_HANDLE.strip(), settings.BLUESKY_APP_PASSWORD.strip()
+
     async def _create_session(self, force_refresh: bool = False) -> Optional[dict]:
         if self._cached_session and not force_refresh:
             return self._cached_session
 
-        handle = settings.BLUESKY_HANDLE.strip()
-        app_password = settings.BLUESKY_APP_PASSWORD.strip()
+        handle, app_password = await self._resolve_credentials()
 
         if not handle or not app_password:
             return None
@@ -104,11 +112,12 @@ class BlueskyAdapter(BasePlatformAdapter):
         # 3. Live AT Protocol Dispatch
         session = await self._create_session()
         if not session:
-            if not settings.BLUESKY_HANDLE or not settings.BLUESKY_APP_PASSWORD:
+            handle, app_pwd = await self._resolve_credentials()
+            if not handle or not app_pwd:
                 return PlatformResult(
                     platform=self.platform_name,
                     status="failed",
-                    error_message="Missing BLUESKY_HANDLE or BLUESKY_APP_PASSWORD in backend/.env",
+                    error_message="Missing BLUESKY_HANDLE or BLUESKY_APP_PASSWORD. Please connect your Bluesky account.",
                 )
             return PlatformResult(
                 platform=self.platform_name,

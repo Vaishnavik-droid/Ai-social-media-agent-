@@ -13,7 +13,11 @@ htmlcov/
 # Environment files with live secrets
 .env
 .env.*
+*.env
+platform_credentials.env
 !.env.example
+!*.env.example
+!platform_credentials.env.example
 
 # OS and IDE files
 .DS_Store

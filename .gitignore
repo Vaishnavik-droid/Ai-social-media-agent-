@@ -28,6 +28,10 @@ dist-ssr
 .env.local
 .env.*.local
 *.env
+platform_credentials.env
+!.env.example
+!*.env.example
+!platform_credentials.env.example
 
 # Python & Vercel
 __pycache__/
@@ -37,4 +41,3 @@ __pycache__/
 venv/
 .pytest_cache/
 .vercel
-

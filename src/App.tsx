@@ -195,45 +195,45 @@ export const App: React.FC = () => {
   }, []);
 
   const [platforms, setPlatforms] = useState<ConnectedPlatform[]>(() => {
-    let metaCreds: Record<string, any> = {};
-    try {
-      const savedCreds = localStorage.getItem('omnipulse_meta_credentials');
-      if (savedCreds) metaCreds = JSON.parse(savedCreds);
-    } catch {}
-
     const saved = localStorage.getItem('ai_social_platforms');
     if (saved) {
       try {
-        const parsed: ConnectedPlatform[] = JSON.parse(saved);
-        return parsed.map((p) => {
-          const cred = metaCreds[p.id];
-          const hasAppId = Boolean(p.appId || cred?.appId);
-          // If explicitly marked connected, keep it connected and preserve handle/appId
-          if (p.status === 'connected') {
-            return {
-              ...p,
-              appId: p.appId || cred?.appId || '',
-              status: 'connected',
-              handle: p.handle && p.handle !== 'Not Connected' ? p.handle : (p.id === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page')
-            };
-          }
-          // Only reset to disconnected if mock data default and no credentials configured
-          if ((p.id === 'instagram' || p.id === 'facebook') && !hasAppId && !p.accessToken) {
-            return {
-              ...p,
-              status: 'disconnected' as const,
-              handle: 'Not Connected',
-              connectedUser: '',
-            };
-          }
-          return p;
-        });
+        return JSON.parse(saved);
       } catch {
         return mockConnectedPlatforms;
       }
     }
     return mockConnectedPlatforms;
   });
+
+  // Centralized Server Credential Synchronization: Load real connection states from FastAPI on mount
+  useEffect(() => {
+    let isMounted = true;
+    api.listConnections().then((res) => {
+      if (!isMounted) return;
+      if (res && res.connections && res.connections.length > 0) {
+        setPlatforms(
+          res.connections.map((c) => ({
+            id: c.id as Platform,
+            name: c.name,
+            handle: c.handle,
+            status: c.status === 'connected' ? 'connected' : c.status === 'coming_soon' ? 'coming_soon' : 'disconnected',
+            connectedUser: c.connectedUser || c.connected_user || '',
+            lastVerifiedAt: c.lastVerifiedAt || c.last_verified_at,
+            accountId: c.accountId || c.account_id,
+            accountName: c.accountName || c.account_name,
+            isComingSoon: Boolean(c.isComingSoon || c.is_coming_soon || c.status === 'coming_soon'),
+          }))
+        );
+      }
+    }).catch((err) => {
+      console.warn('Could not load connections from backend, using cached state:', err);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const [user, setUser] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('ai_social_user');
@@ -542,17 +542,9 @@ export const App: React.FC = () => {
     setPlatforms((prev) => {
       const updated = prev.map((p) => {
         if (p.id === platformId) {
-          const nextStatus = credentials.status ?? p.status;
-          const fallbackHandle = platformId === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page';
-          const resolvedHandle = credentials.handle
-            ? credentials.handle
-            : (nextStatus === 'connected' ? (p.handle !== 'Not Connected' ? p.handle : fallbackHandle) : 'Not Connected');
-
           return {
             ...p,
             ...credentials,
-            status: nextStatus,
-            handle: resolvedHandle,
           };
         }
         return p;
@@ -564,99 +556,44 @@ export const App: React.FC = () => {
     });
   };
 
-  // Helper to activate a platform connection cleanly across all storage and state
-  const handleActivateMetaPlatform = (targetPlatform: Platform) => {
-    const targetName = targetPlatform === 'instagram' ? 'Instagram' : 'Facebook';
-    const targetHandle = targetPlatform === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page';
-
-    let savedAppId = '';
-    try {
-      const saved = localStorage.getItem('omnipulse_meta_credentials');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed[targetPlatform]?.appId) savedAppId = parsed[targetPlatform].appId;
-      }
-    } catch {}
-
-    handleUpdatePlatformCredentials(targetPlatform, {
-      status: 'connected',
-      handle: targetHandle,
-      appId: savedAppId || '2231204290777395',
-    });
-
-    setCurrentPage('platforms');
-    showToast(`🎉 Meta OAuth Success: ${targetName} is now Connected!`);
-  };
-
-  // Detect OAuth callback on mount in current window
+  // Clean URL parameters if redirect landed on frontend
   useEffect(() => {
     if (typeof window === 'undefined') return;
-
     const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
-    const state = (urlParams.get('state') as Platform | null) || null;
-    const error = urlParams.get('error_description') || urlParams.get('error');
-
-    if (code && (state === 'facebook' || state === 'instagram')) {
-      const targetPlatform: Platform = state;
-
-      // 1. If inside a popup window, notify opener
-      if (window.opener && window.opener !== window) {
-        try {
-          window.opener.postMessage(
-            {
-              type: 'OMNIPULSE_META_OAUTH_SUCCESS',
-              platform: targetPlatform,
-              code: code,
-            },
-            '*'
-          );
-        } catch (e) {
-          console.warn('postMessage to opener notice:', e);
-        }
-      }
-
-      // 2. Broadcast via localStorage event for any other open tabs/windows
-      const eventPayload = {
-        type: 'OMNIPULSE_META_OAUTH_SUCCESS',
-        platform: targetPlatform,
-        code: code,
-        timestamp: Date.now(),
-      };
-      localStorage.setItem('omnipulse_meta_oauth_event', JSON.stringify(eventPayload));
-
-      // 3. Update current window state
-      handleActivateMetaPlatform(targetPlatform);
-
-      // 4. Clean up URL cleanly (strip query parameters and Facebook's #_=_ fragment)
+    if (urlParams.has('code') || urlParams.has('state') || urlParams.has('error')) {
       if (window.history && window.history.replaceState) {
-        window.history.replaceState({}, document.title, '/platforms');
-      }
-
-      // 5. If popup window, close automatically after giving user brief visual confirmation
-      if (window.opener && window.opener !== window) {
-        setTimeout(() => {
-          try {
-            window.close();
-          } catch (e) {}
-        }, 1500);
-      }
-    } else if (error) {
-      showToast(`Meta OAuth Notice: ${error}`);
-      if (window.history && window.history.replaceState) {
-        window.history.replaceState({}, document.title, '/platforms');
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
   }, []);
 
   // Multi-window communication listeners (when user authorized via popup or another tab)
   useEffect(() => {
+    const refreshConnectionsFromServer = () => {
+      api.listConnections().then((res) => {
+        if (res && res.connections) {
+          setPlatforms(
+            res.connections.map((c) => ({
+              id: c.id as Platform,
+              name: c.name,
+              handle: c.handle,
+              status: c.status === 'connected' ? 'connected' : 'disconnected',
+              connectedUser: c.connectedUser || c.connected_user || '',
+              lastVerifiedAt: c.lastVerifiedAt || c.last_verified_at,
+              accountId: c.accountId || c.account_id,
+              accountName: c.accountName || c.account_name,
+            }))
+          );
+        }
+      }).catch(() => {});
+    };
+
     // 1. postMessage listener from popup
     const handleWindowMessage = (event: MessageEvent) => {
-      if (event.data && event.data.type === 'OMNIPULSE_META_OAUTH_SUCCESS') {
-        const platform = event.data.platform as Platform;
-        handleActivateMetaPlatform(platform);
-      } else if (event.data && event.data.type === 'OMNIPULSE_META_OAUTH_ERROR') {
+      if (event.data && event.data.type === 'OMNIPULSE_OAUTH_SUCCESS') {
+        refreshConnectionsFromServer();
+        showToast(`🎉 ${event.data.platform?.toUpperCase() || 'Platform'} connected successfully!`);
+      } else if (event.data && event.data.type === 'OMNIPULSE_OAUTH_ERROR') {
         showToast(`Meta Authorization failed: ${event.data.error}`);
       }
     };
@@ -664,41 +601,15 @@ export const App: React.FC = () => {
 
     // 2. Storage event listener (cross-tab sync)
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'omnipulse_meta_oauth_event' && event.newValue) {
-        try {
-          const data = JSON.parse(event.newValue);
-          if (data.type === 'OMNIPULSE_META_OAUTH_SUCCESS') {
-            handleActivateMetaPlatform(data.platform);
-          }
-        } catch (e) {}
-      } else if (event.key === 'ai_social_platforms' && event.newValue) {
-        try {
-          const updatedPlatforms = JSON.parse(event.newValue);
-          setPlatforms(updatedPlatforms);
-        } catch (e) {}
+      if (event.key === 'ai_social_platforms') {
+        refreshConnectionsFromServer();
       }
     };
     window.addEventListener('storage', handleStorageChange);
 
-    // 3. Window focus listener (when user switches back from popup/Meta tab)
-    const handleWindowFocus = () => {
-      const savedEvent = localStorage.getItem('omnipulse_meta_oauth_event');
-      if (savedEvent) {
-        try {
-          const data = JSON.parse(savedEvent);
-          if (Date.now() - data.timestamp < 300000) {
-            handleActivateMetaPlatform(data.platform);
-            localStorage.removeItem('omnipulse_meta_oauth_event');
-          }
-        } catch (e) {}
-      }
-    };
-    window.addEventListener('focus', handleWindowFocus);
-
     return () => {
       window.removeEventListener('message', handleWindowMessage);
       window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('focus', handleWindowFocus);
     };
   }, []);
 

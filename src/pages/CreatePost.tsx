@@ -830,6 +830,8 @@ export const CreatePost: React.FC<CreatePostProps> = ({
                 instagram: 'Instagram',
                 facebook: 'Facebook',
                 twitter: 'Twitter',
+                pinterest: 'Pinterest',
+                youtube: 'YouTube',
               };
               return (
                 <button

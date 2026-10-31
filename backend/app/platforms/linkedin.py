@@ -17,8 +17,15 @@ class LinkedInAdapter(BasePlatformAdapter):
     def platform_name(self) -> str:
         return "linkedin"
 
+    async def _resolve_credentials(self) -> tuple[str, str]:
+        from app.services.credential_service import credential_service
+        creds = await credential_service.get_credentials("linkedin")
+        if creds and creds.get("access_token"):
+            return creds["access_token"], creds.get("account_id") or settings.LINKEDIN_AUTHOR_URN.strip()
+        return settings.LINKEDIN_ACCESS_TOKEN.strip(), settings.LINKEDIN_AUTHOR_URN.strip()
+
     async def validate_connection(self) -> bool:
-        token = settings.LINKEDIN_ACCESS_TOKEN.strip()
+        token, _ = await self._resolve_credentials()
         if not token:
             return False
 
@@ -60,14 +67,13 @@ class LinkedInAdapter(BasePlatformAdapter):
             )
 
         # 3. Live LinkedIn Dispatch
-        token = settings.LINKEDIN_ACCESS_TOKEN.strip()
-        author_urn = settings.LINKEDIN_AUTHOR_URN.strip()
+        token, author_urn = await self._resolve_credentials()
 
         if not token:
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Missing LINKEDIN_ACCESS_TOKEN in backend/.env",
+                error_message="Missing LINKEDIN_ACCESS_TOKEN. Please connect your LinkedIn account.",
             )
 
         # Auto-resolve author URN if missing urn:li prefix

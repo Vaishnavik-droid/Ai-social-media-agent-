@@ -3,7 +3,9 @@ export type Platform =
   | 'linkedin'
   | 'instagram'
   | 'facebook'
-  | 'twitter';
+  | 'twitter'
+  | 'pinterest'
+  | 'youtube';
 
 export type PostStatus =
   | 'published'
@@ -30,8 +32,13 @@ export interface ConnectedPlatform {
   id: Platform;
   name: string;
   handle: string;
-  status: 'connected' | 'disconnected';
+  status: 'connected' | 'disconnected' | 'coming_soon' | 'error';
   connectedUser: string;
+  lastVerifiedAt?: string;
+  accountId?: string;
+  accountName?: string;
+  isComingSoon?: boolean;
+  isConfigured?: boolean;
   appId?: string;
   appSecret?: string;
   accessToken?: string;

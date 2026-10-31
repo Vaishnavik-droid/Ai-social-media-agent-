@@ -1,31 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ConnectedPlatform, Platform } from '../types';
 import { PlatformIcon } from '../components/PlatformIcon';
 import {
-  Edit2,
-  Copy,
-  Check,
-  ExternalLink,
-  Key,
-  ShieldCheck,
-  AlertCircle,
-  Eye,
-  EyeOff,
-  Sparkles,
-  RefreshCw,
-  Globe,
-  Lock,
-  Info,
   CheckCircle2,
-  ArrowRight,
-  Zap
+  AlertCircle,
+  RefreshCw,
+  ExternalLink,
+  ShieldCheck,
+  Lock,
+  LogOut,
+  Sparkles,
+  X,
+  Key,
+  Globe,
+  Clock,
+  AlertTriangle,
+  UserCheck,
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, PlatformConnection } from '../lib/api';
 
 interface PlatformsProps {
-  platforms: ConnectedPlatform[];
-  onToggleStatus: (id: Platform) => void;
-  onUpdateHandle: (id: Platform, newHandle: string) => void;
+  platforms?: ConnectedPlatform[];
+  onToggleStatus?: (id: Platform) => void;
+  onUpdateHandle?: (id: Platform, newHandle: string) => void;
   onUpdateCredentials?: (
     id: Platform,
     credentials: {
@@ -40,777 +37,767 @@ interface PlatformsProps {
   onToast?: (message: string) => void;
 }
 
-interface PlatformCreds {
-  appId: string;
-  appSecret: string;
-  pageId: string;
-  accessToken: string;
-  showSecret: boolean;
+interface PlatformDefinition {
+  id: Platform;
+  name: string;
+  tagline: string;
+  description: string;
+  type: 'meta_oauth' | 'modal' | 'coming_soon';
 }
 
+const ALL_PLATFORMS: PlatformDefinition[] = [
+  {
+    id: 'bluesky',
+    name: 'Bluesky',
+    tagline: 'Decentralized AT Protocol',
+    description: 'Broadcast short-form posts and embedded media over the open AT Protocol network.',
+    type: 'modal',
+  },
+  {
+    id: 'linkedin',
+    name: 'LinkedIn',
+    tagline: 'Professional Network',
+    description: 'Publish commentary, articles, and thought leadership to your profile or company page.',
+    type: 'modal',
+  },
+  {
+    id: 'facebook',
+    name: 'Facebook',
+    tagline: 'Meta Page Feed',
+    description: 'Publish updates, links, and high-resolution photo posts directly to your Page feed.',
+    type: 'meta_oauth',
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    tagline: 'Visual Content',
+    description: 'Publish feed photos, carousel visuals, and captions to your Professional Business account.',
+    type: 'meta_oauth',
+  },
+  {
+    id: 'pinterest',
+    name: 'Pinterest',
+    tagline: 'Visual Discovery',
+    description: 'Pin high-impact graphics, product visuals, and destination link cards to your boards.',
+    type: 'coming_soon',
+  },
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    tagline: 'Video & Shorts',
+    description: 'Upload video content, shorts, descriptions, and tags directly to your YouTube channel.',
+    type: 'coming_soon',
+  },
+];
+
 export const Platforms: React.FC<PlatformsProps> = ({
-  platforms,
-  onToggleStatus,
-  onUpdateHandle,
-  onUpdateCredentials,
-  onToast
+  platforms: initialPlatforms,
+  onToast,
 }) => {
-  const [editingId, setEditingId] = useState<Platform | null>(null);
-  const [editHandleText, setEditHandleText] = useState('');
+  const [platformList, setPlatformList] = useState<PlatformConnection[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
-  // Expandable Configuration Drawer for Meta Platforms
-  const [expandedConfigId, setExpandedConfigId] = useState<Platform | null>(null);
+  // Active Connect Modals for Bluesky & LinkedIn
+  const [activeModal, setActiveModal] = useState<'bluesky' | 'linkedin' | null>(null);
+  const [blueskyHandle, setBlueskyHandle] = useState('');
+  const [blueskyPassword, setBlueskyPassword] = useState('');
+  const [linkedinToken, setLinkedinToken] = useState('');
+  const [linkedinUrn, setLinkedinUrn] = useState('');
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalSubmitting, setModalSubmitting] = useState(false);
 
-  // Credentials State for Meta Platforms
-  const [platformCredentials, setPlatformCredentials] = useState<Record<string, PlatformCreds>>(() => {
-    const defaults = {
-      facebook: { appId: '2231204290777395', appSecret: '', pageId: '', accessToken: '', showSecret: false },
-      instagram: { appId: '', appSecret: '', pageId: '', accessToken: '', showSecret: false }
-    };
-    const saved = localStorage.getItem('omnipulse_meta_credentials');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return {
-          facebook: {
-            ...defaults.facebook,
-            ...(parsed.facebook || {}),
-            appId: (parsed.facebook?.appId && parsed.facebook.appId.trim()) ? parsed.facebook.appId : '2231204290777395'
-          },
-          instagram: {
-            ...defaults.instagram,
-            ...(parsed.instagram || {})
-          }
-        };
-      } catch {
-        // Fallback to defaults
-      }
-    }
-    return defaults;
-  });
+  // Disconnection Confirmation Modal state
+  const [disconnectTarget, setDisconnectTarget] = useState<{ id: string; name: string; handle: string } | null>(null);
 
-  // Sync credentials with localStorage
-  useEffect(() => {
-    localStorage.setItem('omnipulse_meta_credentials', JSON.stringify(platformCredentials));
-  }, [platformCredentials]);
-
-  // Verification & Feedback States
-  const [verifyingPlatform, setVerifyingPlatform] = useState<Platform | null>(null);
-  const [verificationError, setVerificationError] = useState<Record<string, string | null>>({});
-  const [verificationSuccess, setVerificationSuccess] = useState<Record<string, string | null>>({});
-  const [incompleteConfigAlert, setIncompleteConfigAlert] = useState<Record<string, boolean>>({});
-  const [lastAuthUrl, setLastAuthUrl] = useState<Record<string, string | null>>({});
-
-  // Copy Feedback
-  const [copiedRedirectUri, setCopiedRedirectUri] = useState(false);
-  const [copiedCallbackUri, setCopiedCallbackUri] = useState(false);
-  const [copiedAuthUrl, setCopiedAuthUrl] = useState<Record<string, boolean>>({});
-
-  // Dynamic URI computation for current environment (localhost or Vercel)
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-  const frontendRedirectUri = `${currentOrigin}/platforms`;
-  const backendCallbackUri = `${currentOrigin}/api/v1/connections/meta/callback`;
-
-  // Handle URL Parameter OAuth Callback from Meta Redirect & listen for cross-window sync
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
-    const state = urlParams.get('state') as Platform | null;
-    const error = urlParams.get('error_description') || urlParams.get('error');
-
-    if (code && (state === 'facebook' || state === 'instagram')) {
-      const targetPlatform = state;
-      const creds = platformCredentials[targetPlatform] || { appId: '', appSecret: '', pageId: '', accessToken: '' };
-      const assignedHandle = creds.pageId.trim()
-        ? (targetPlatform === 'instagram' ? `@${creds.pageId.replace(/^@/, '')}` : `Page: ${creds.pageId}`)
-        : (targetPlatform === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page');
-
-      if (onToast) {
-        onToast(`🎉 Meta OAuth Success: ${targetPlatform === 'instagram' ? 'Instagram' : 'Facebook'} is now Connected!`);
-      }
-      if (onUpdateCredentials) {
-        onUpdateCredentials(targetPlatform, {
-          status: 'connected',
-          handle: assignedHandle,
-          appId: creds.appId || '2231204290777395',
-          appSecret: creds.appSecret,
-          accessToken: creds.accessToken,
-          pageId: creds.pageId,
-        });
-      }
-      setVerificationSuccess((prev) => ({
-        ...prev,
-        [targetPlatform]: `OAuth Authorization successful! Meta returned authorization code. Platform is now linked and active.`
-      }));
-      setVerificationError((prev) => ({ ...prev, [targetPlatform]: null }));
-      setIncompleteConfigAlert((prev) => ({ ...prev, [targetPlatform]: false }));
-      // Clean query parameters from URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (error) {
-      const targetPlatform = state === 'instagram' ? 'instagram' : 'facebook';
-      setVerificationError((prev) => ({
-        ...prev,
-        [targetPlatform]: `Meta OAuth Error: ${error}. Ensure "${frontendRedirectUri}" is entered into Meta Developer Settings (Valid OAuth Redirect URIs).`
-      }));
-      setIncompleteConfigAlert((prev) => ({ ...prev, [targetPlatform]: true }));
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
-    // Cross-window storage sync listener
-    const handleStorageEvent = (e: StorageEvent) => {
-      if (e.key === 'omnipulse_meta_oauth_event' && e.newValue) {
-        try {
-          const data = JSON.parse(e.newValue);
-          if (data.type === 'OMNIPULSE_META_OAUTH_SUCCESS') {
-            const targetPlatform = data.platform as Platform;
-            setVerificationSuccess((prev) => ({
-              ...prev,
-              [targetPlatform]: `OAuth Authorization successful! Meta returned authorization code. Platform is now linked and active.`
-            }));
-            setVerificationError((prev) => ({ ...prev, [targetPlatform]: null }));
-            setIncompleteConfigAlert((prev) => ({ ...prev, [targetPlatform]: false }));
-          }
-        } catch {}
-      }
-    };
-    window.addEventListener('storage', handleStorageEvent);
-    return () => window.removeEventListener('storage', handleStorageEvent);
-  }, [platformCredentials]);
-
-  // Copy helper
-  const handleCopy = (text: string, type: 'redirect' | 'callback' | string) => {
-    navigator.clipboard.writeText(text);
-    if (type === 'redirect') {
-      setCopiedRedirectUri(true);
-      setTimeout(() => setCopiedRedirectUri(false), 2500);
-    } else if (type === 'callback') {
-      setCopiedCallbackUri(true);
-      setTimeout(() => setCopiedCallbackUri(false), 2500);
-    } else {
-      setCopiedAuthUrl((prev) => ({ ...prev, [type]: true }));
-      setTimeout(() => setCopiedAuthUrl((prev) => ({ ...prev, [type]: false })), 2500);
-    }
-    if (onToast) {
-      onToast('Copied URL to clipboard!');
-    }
-  };
-
-  // Credential input updater
-  const updateCred = (platformId: string, field: keyof PlatformCreds, val: any) => {
-    setPlatformCredentials((prev) => ({
-      ...prev,
-      [platformId]: {
-        ...prev[platformId],
-        [field]: val
-      }
-    }));
-  };
-
-  // Handle Editing
-  const startEdit = (p: ConnectedPlatform) => {
-    setEditingId(p.id);
-    setEditHandleText(p.handle);
-  };
-
-  const saveEdit = (id: Platform) => {
-    if (editHandleText.trim()) {
-      onUpdateHandle(id, editHandleText.trim());
-    }
-    setEditingId(null);
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditHandleText('');
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent, id: Platform) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveEdit(id);
-    } else if (e.key === 'Escape') {
-      cancelEdit();
-    }
-  };
-
-  // Send OAuth Request to Meta (Supports popup and direct redirect)
-  const handleSendOAuthRequest = (platformId: Platform, mode: 'popup' | 'direct' = 'popup') => {
-    const creds = platformCredentials[platformId] || { appId: '', appSecret: '', pageId: '', accessToken: '' };
-
-    if (!creds.appId.trim()) {
-      setIncompleteConfigAlert((prev) => ({ ...prev, [platformId]: true }));
-      setVerificationError((prev) => ({
-        ...prev,
-        [platformId]: `Incomplete Configuration: Please input your Meta App ID below before sending the request. Also make sure "${frontendRedirectUri}" is entered into your Meta Developer App Settings under "Valid OAuth Redirect URIs".`
-      }));
-      setExpandedConfigId(platformId);
-      return;
-    }
-
-    setIncompleteConfigAlert((prev) => ({ ...prev, [platformId]: false }));
-    setVerificationError((prev) => ({ ...prev, [platformId]: null }));
-
-    const scopes = platformId === 'instagram'
-      ? 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement'
-      : 'pages_show_list,pages_read_engagement,pages_manage_posts,public_profile';
-
-    const authUrl = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${creds.appId.trim()}&redirect_uri=${encodeURIComponent(frontendRedirectUri)}&scope=${scopes}&response_type=code&state=${platformId}`;
-
-    setLastAuthUrl((prev) => ({ ...prev, [platformId]: authUrl }));
-
-    if (mode === 'direct') {
-      if (onToast) {
-        onToast(`Redirecting to Meta OAuth in this tab...`);
-      }
-      window.location.href = authUrl;
-      return;
-    }
-
-    // Open Meta OAuth in a popup window
-    window.open(authUrl, '_blank', 'width=650,height=750,scrollbars=yes,status=yes');
-
-    if (onToast) {
-      onToast(`Meta OAuth window opened. Complete login in popup. Your dashboard will auto-sync upon completion.`);
-    }
-  };
-
-  // Instant Activate & Connect (for when user has already completed Meta login or has verified credentials)
-  const handleDirectActivate = (platformId: Platform) => {
-    const creds = platformCredentials[platformId] || { appId: '', appSecret: '', pageId: '', accessToken: '' };
-    const assignedHandle = creds.pageId.trim()
-      ? (platformId === 'instagram' ? `@${creds.pageId.replace(/^@/, '')}` : `Page: ${creds.pageId}`)
-      : (platformId === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page');
-
-    if (onUpdateCredentials) {
-      onUpdateCredentials(platformId, {
-        appId: creds.appId || '2231204290777395',
-        appSecret: creds.appSecret,
-        accessToken: creds.accessToken,
-        pageId: creds.pageId,
-        status: 'connected',
-        handle: assignedHandle,
-      });
-    }
-
-    setVerificationSuccess((prev) => ({
-      ...prev,
-      [platformId]: `✅ ${platformId === 'instagram' ? 'Instagram' : 'Facebook'} connected and verified! Permissions are active.`
-    }));
-    setVerificationError((prev) => ({ ...prev, [platformId]: null }));
-    setIncompleteConfigAlert((prev) => ({ ...prev, [platformId]: false }));
-
-    if (onToast) {
-      onToast(`🎉 ${platformId === 'instagram' ? 'Instagram' : 'Facebook'} is now Connected!`);
-    }
-  };
-
-  // Verify Credentials with Backend / Meta Graph API
-  const handleVerifyCredentials = async (platformId: Platform) => {
-    const creds = platformCredentials[platformId] || { appId: '', appSecret: '', pageId: '', accessToken: '' };
-
-    if (!creds.appId.trim() && !creds.accessToken.trim()) {
-      setIncompleteConfigAlert((prev) => ({ ...prev, [platformId]: true }));
-      setVerificationError((prev) => ({
-        ...prev,
-        [platformId]: `Incomplete Configuration: Please provide your Meta App ID & App Secret, or a Page/User Access Token to verify.`
-      }));
-      setExpandedConfigId(platformId);
-      return;
-    }
-
-    setVerifyingPlatform(platformId);
-    setVerificationError((prev) => ({ ...prev, [platformId]: null }));
-    setVerificationSuccess((prev) => ({ ...prev, [platformId]: null }));
-    setIncompleteConfigAlert((prev) => ({ ...prev, [platformId]: false }));
-
+  // Fetch real connection states from FastAPI backend
+  const fetchConnections = useCallback(async () => {
     try {
-      const res = await api.verifyConnection(platformId, {
-        app_id: creds.appId.trim() || undefined,
-        app_secret: creds.appSecret.trim() || undefined,
-        access_token: creds.accessToken.trim() || undefined,
-        page_id: creds.pageId.trim() || undefined,
-        account_id: creds.pageId.trim() || undefined,
-        redirect_uri: frontendRedirectUri,
-      });
-
-      setVerifyingPlatform(null);
-
-      if (res.is_valid) {
-        setVerificationSuccess((prev) => ({
-          ...prev,
-          [platformId]: res.message || 'Connection verified successfully with Meta Graph API!'
-        }));
-
-        const assignedHandle = creds.pageId.trim()
-          ? (platformId === 'instagram' ? `@${creds.pageId.replace(/^@/, '')}` : `Page: ${creds.pageId}`)
-          : (platformId === 'instagram' ? '@rushikeshchavan' : 'OmniPulse Media Page');
-
-        if (onUpdateCredentials) {
-          onUpdateCredentials(platformId, {
-            appId: creds.appId,
-            appSecret: creds.appSecret,
-            accessToken: creds.accessToken,
-            pageId: creds.pageId,
-            status: 'connected',
-            handle: assignedHandle,
-          });
-        }
-        if (onToast) {
-          onToast(`${platformId === 'instagram' ? 'Instagram' : 'Facebook'} connected successfully!`);
-        }
-      } else {
-        setVerificationError((prev) => ({
-          ...prev,
-          [platformId]: res.message || 'Verification failed. Please check your App ID, Secret, and ensure Valid OAuth Redirect URIs are configured in Meta Developer Dashboard.'
-        }));
+      setIsLoading(true);
+      const res = await api.listConnections();
+      if (res && res.connections) {
+        setPlatformList(res.connections);
       }
     } catch (err: any) {
-      setVerifyingPlatform(null);
-      setVerificationError((prev) => ({
-        ...prev,
-        [platformId]: err?.message || 'Connection test failed. Ensure your Meta credentials are valid and server is reachable.'
-      }));
+      console.warn('Could not fetch server connections:', err);
+      if (initialPlatforms && initialPlatforms.length > 0) {
+        setPlatformList(
+          initialPlatforms.map((p) => ({
+            id: p.id,
+            name: p.name,
+            handle: p.handle,
+            status: p.status,
+            connectedUser: p.connectedUser,
+            lastVerifiedAt: p.lastVerifiedAt,
+            accountId: p.accountId,
+            accountName: p.accountName,
+            isComingSoon: p.id === 'pinterest' || p.id === 'youtube',
+          }))
+        );
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [initialPlatforms]);
+
+  useEffect(() => {
+    fetchConnections();
+  }, [fetchConnections]);
+
+  // Handle postMessage from Meta OAuth Popup
+  useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+
+      if (data.type === 'OMNIPULSE_OAUTH_SUCCESS') {
+        const platName = data.platform === 'instagram' ? 'Instagram' : 'Facebook';
+        if (onToast) {
+          onToast(`🎉 ${platName} connected successfully (${data.handle || 'verified'})!`);
+        }
+        setActionLoading((prev) => ({ ...prev, [data.platform]: false }));
+        fetchConnections();
+      } else if (data.type === 'OMNIPULSE_OAUTH_ERROR') {
+        const platName = data.platform ? data.platform.toUpperCase() : 'Meta';
+        if (onToast) {
+          onToast(`✕ ${platName} Connection Error: ${data.error || 'Authorization failed'}`);
+        }
+        setActionLoading((prev) => ({ ...prev, [data.platform || 'facebook']: false }));
+      }
+    };
+
+    window.addEventListener('message', handleOAuthMessage);
+    return () => window.removeEventListener('message', handleOAuthMessage);
+  }, [onToast, fetchConnections]);
+
+  // Initiate Meta OAuth in Popup
+  const handleConnectMeta = async (platform: 'facebook' | 'instagram') => {
+    setActionLoading((prev) => ({ ...prev, [platform]: true }));
+
+    try {
+      const res = await api.initiateMetaAuth(platform, window.location.origin);
+      if (!res.auth_url) {
+        throw new Error('Backend did not return an authorization URL.');
+      }
+
+      const width = 640;
+      const height = 720;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+
+      const popup = window.open(
+        res.auth_url,
+        `OmniPulse_Meta_Auth_${platform}`,
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,status=yes`
+      );
+
+      if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+        alert('Popup was blocked by your browser. Please allow popups for OmniPulse to authorize Meta.');
+        setActionLoading((prev) => ({ ...prev, [platform]: false }));
+        return;
+      }
+
+      if (onToast) {
+        onToast(`Meta authorization window opened. Complete sign-in in the popup.`);
+      }
+
+      const checkPopup = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(checkPopup);
+          setActionLoading((prev) => ({ ...prev, [platform]: false }));
+        }
+      }, 1000);
+    } catch (err: any) {
+      setActionLoading((prev) => ({ ...prev, [platform]: false }));
+      const msg = err?.message || 'Failed to initiate Meta OAuth.';
+      if (onToast) {
+        onToast(`✕ Error: ${msg}`);
+      } else {
+        alert(msg);
+      }
     }
   };
 
-  // Disconnect handler
-  const handleDisconnect = (platformId: Platform) => {
-    if (onUpdateCredentials) {
-      onUpdateCredentials(platformId, {
-        status: 'disconnected',
-        handle: 'Not Connected',
-      });
-    } else {
-      onToggleStatus(platformId);
-    }
-    setVerificationSuccess((prev) => ({ ...prev, [platformId]: null }));
-    setVerificationError((prev) => ({ ...prev, [platformId]: null }));
-    setIncompleteConfigAlert((prev) => ({ ...prev, [platformId]: false }));
-    if (onToast) {
-      onToast(`Disconnected from ${platformId === 'instagram' ? 'Instagram' : platformId === 'facebook' ? 'Facebook' : platformId}.`);
+  // Submit Bluesky Modal Connect
+  const handleSubmitBluesky = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError(null);
+    setModalSubmitting(true);
+
+    try {
+      const res = await api.connectBluesky(blueskyHandle, blueskyPassword);
+      if (res.is_valid) {
+        if (onToast) onToast(`🎉 ${res.message}`);
+        setActiveModal(null);
+        setBlueskyPassword('');
+        fetchConnections();
+      } else {
+        setModalError(res.message);
+      }
+    } catch (err: any) {
+      setModalError(err?.message || 'Failed to connect to Bluesky.');
+    } finally {
+      setModalSubmitting(false);
     }
   };
+
+  // Submit LinkedIn Modal Connect
+  const handleSubmitLinkedIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError(null);
+    setModalSubmitting(true);
+
+    try {
+      const res = await api.connectLinkedIn(linkedinToken, linkedinUrn);
+      if (res.is_valid) {
+        if (onToast) onToast(`🎉 ${res.message}`);
+        setActiveModal(null);
+        setLinkedinToken('');
+        setLinkedinUrn('');
+        fetchConnections();
+      } else {
+        setModalError(res.message);
+      }
+    } catch (err: any) {
+      setModalError(err?.message || 'Failed to connect to LinkedIn.');
+    } finally {
+      setModalSubmitting(false);
+    }
+  };
+
+  // Prompt Disconnect Confirmation
+  const promptDisconnect = (platformId: string, name: string, handle: string) => {
+    setDisconnectTarget({ id: platformId, name, handle });
+  };
+
+  // Execute Confirmed Disconnect
+  const executeDisconnect = async () => {
+    if (!disconnectTarget) return;
+    const { id: platformId, name: platName } = disconnectTarget;
+
+    setActionLoading((prev) => ({ ...prev, [platformId]: true }));
+    try {
+      await api.disconnectPlatform(platformId);
+      if (onToast) onToast(`Disconnected from ${platName}.`);
+      setDisconnectTarget(null);
+      await fetchConnections();
+    } catch (err: any) {
+      if (onToast) onToast(`✕ Error disconnecting: ${err?.message}`);
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [platformId]: false }));
+    }
+  };
+
+  // Re-verify / Refresh handler
+  const handleRefresh = async (platformId: string) => {
+    setActionLoading((prev) => ({ ...prev, [platformId]: true }));
+    try {
+      const res = await api.refreshConnection(platformId);
+      if (res.is_valid) {
+        if (onToast) onToast(`✓ ${res.message}`);
+      } else {
+        if (onToast) onToast(`✕ ${res.message}`);
+      }
+      await fetchConnections();
+    } catch (err: any) {
+      if (onToast) onToast(`✕ Verification error: ${err?.message}`);
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [platformId]: false }));
+    }
+  };
+
+  // Compute live dynamic counts directly from server connection records
+  const connectedCount = platformList.filter((p) => p.status === 'connected').length;
+  const totalCount = ALL_PLATFORMS.length;
 
   return (
     <div className="platforms-page">
-      {/* ===============================================================
-          META DEVELOPER OAUTH REDIRECT URL GUIDE & SETTINGS BOX
-          =============================================================== */}
-      <div className="meta-oauth-banner">
-        <div className="meta-oauth-header">
-          <div className="meta-oauth-title-wrap">
-            <div className="meta-oauth-icon-badge">
-              <Globe size={18} />
-            </div>
-            <div>
-              <h3 className="meta-oauth-title">Meta Developer OAuth Configuration &amp; Redirect URIs</h3>
-              <p className="meta-oauth-subtitle">
-                Required for Facebook and Instagram OAuth verification in Meta for Developers (<a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer" className="meta-doc-link">developers.facebook.com <ExternalLink size={11} /></a>).
-              </p>
-            </div>
-          </div>
-          <span className="meta-status-pill">OAuth 2.0 Ready</span>
+      {/* Page Header */}
+      <div className="platforms-header">
+        <div className="platforms-header-left">
+          <h1 className="platforms-title">Connected Platforms</h1>
+          <p className="platforms-subtitle">
+            Manage your social media accounts and publishing connections.
+          </p>
         </div>
 
-        <div className="meta-oauth-body">
-          <div className="meta-oauth-explanation">
-            <p>
-              When you send an OAuth verification request using your <strong>Meta App ID</strong> and <strong>App Secret</strong>,
-              Meta requires this exact URL in your Meta App settings under <strong>Facebook Login &rarr; Settings &rarr; Valid OAuth Redirect URIs</strong>.
-              If this URL is not entered, Meta blocks the request with an <em>&quot;URL Blocked: Redirect URI not whitelisted&quot;</em> error.
-            </p>
+        <div className="platforms-header-right">
+          {/* Connection Summary Pill */}
+          <div className="platform-summary-badge" title="Live connection count from server">
+            <span className={`summary-dot ${connectedCount > 0 ? 'active' : ''}`}></span>
+            <span className="summary-count-text">
+              <strong>{connectedCount}</strong> of <strong>{totalCount}</strong> platforms connected
+            </span>
           </div>
 
-          <div className="meta-uri-boxes">
-            {/* Primary Frontend Redirect URI */}
-            <div className="meta-uri-card">
-              <div className="meta-uri-label">
-                <span className="meta-uri-tag">Primary Valid OAuth Redirect URI (Frontend)</span>
-                <span className="meta-uri-badge">Required</span>
-              </div>
-              <div className="meta-uri-row">
-                <code className="meta-uri-code">{frontendRedirectUri}</code>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(frontendRedirectUri, 'redirect')}
-                  className={`meta-copy-btn ${copiedRedirectUri ? 'copied' : ''}`}
-                  title="Copy to clipboard"
-                >
-                  {copiedRedirectUri ? <Check size={14} /> : <Copy size={14} />}
-                  <span>{copiedRedirectUri ? 'Copied URI!' : 'Copy URI'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Backend Callback URI */}
-            <div className="meta-uri-card">
-              <div className="meta-uri-label">
-                <span className="meta-uri-tag">Backend Server Callback URI (API Handler)</span>
-                <span className="meta-uri-badge-optional">Optional</span>
-              </div>
-              <div className="meta-uri-row">
-                <code className="meta-uri-code">{backendCallbackUri}</code>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(backendCallbackUri, 'callback')}
-                  className={`meta-copy-btn ${copiedCallbackUri ? 'copied' : ''}`}
-                  title="Copy to clipboard"
-                >
-                  {copiedCallbackUri ? <Check size={14} /> : <Copy size={14} />}
-                  <span>{copiedCallbackUri ? 'Copied URI!' : 'Copy URI'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="meta-steps-inline">
-            <div className="meta-step-item">
-              <span className="meta-step-num">1</span>
-              <span>Open <strong>developers.facebook.com</strong> &rarr; Select your App</span>
-            </div>
-            <ArrowRight size={14} className="meta-step-arrow" />
-            <div className="meta-step-item">
-              <span className="meta-step-num">2</span>
-              <span>Go to <strong>Facebook Login for Business</strong> &rarr; <strong>Settings</strong></span>
-            </div>
-            <ArrowRight size={14} className="meta-step-arrow" />
-            <div className="meta-step-item">
-              <span className="meta-step-num">3</span>
-              <span>Paste the copied <strong>Valid OAuth Redirect URI</strong> &amp; click <strong>Save</strong></span>
-            </div>
-            <ArrowRight size={14} className="meta-step-arrow" />
-            <div className="meta-step-item">
-              <span className="meta-step-num">4</span>
-              <span>Enter your App ID &amp; Secret below, then click <strong>Send OAuth Request</strong></span>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={fetchConnections}
+            disabled={isLoading}
+            className="btn-refresh-all"
+            title="Refresh connection statuses from server"
+          >
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+            <span>Refresh All</span>
+          </button>
         </div>
       </div>
 
-      {/* ===============================================================
-          CONNECTED PLATFORMS GRID
-          =============================================================== */}
+      {/* Security Architecture Badge */}
+      <div className="platforms-security-banner">
+        <div className="security-icon-circle">
+          <ShieldCheck size={18} className="text-emerald-500" />
+        </div>
+        <div className="security-banner-content">
+          <span className="security-banner-title">Zero Client-Side Token Storage</span>
+          <span className="security-banner-text">
+            All OAuth access tokens are encrypted at rest with authenticated AES encryption and stored securely in Supabase. Plaintext secrets are never stored in your browser.
+          </span>
+        </div>
+      </div>
+
+      {/* Platforms 6-Card Grid */}
       <div className="platforms-grid">
-        {platforms.map((platform) => {
-          const isMeta = platform.id === 'instagram' || platform.id === 'facebook';
-          const isConnected = platform.status === 'connected';
-          const isEditing = editingId === platform.id;
-          const isExpanded = expandedConfigId === platform.id;
-          const creds = platformCredentials[platform.id] || { appId: '', appSecret: '', pageId: '', accessToken: '', showSecret: false };
-          const isVerifying = verifyingPlatform === platform.id;
-          const errorMsg = verificationError[platform.id];
-          const successMsg = verificationSuccess[platform.id];
-          const hasIncompleteAlert = incompleteConfigAlert[platform.id];
-          const authUrl = lastAuthUrl[platform.id];
-          const hasCopiedAuthUrl = copiedAuthUrl[platform.id];
+        {ALL_PLATFORMS.map((def) => {
+          const current = platformList.find((item) => item.id === def.id);
+          const isConnected = current?.status === 'connected';
+          const isComingSoon = def.type === 'coming_soon' || current?.status === 'coming_soon';
+          const isError = current?.status === 'error';
+          const isActionLoading = Boolean(actionLoading[def.id]);
+
+          // Clean date formatter
+          let lastVerifiedStr: string | null = null;
+          if (current?.last_verified_at || current?.lastVerifiedAt) {
+            const raw = (current.last_verified_at || current.lastVerifiedAt)!;
+            try {
+              const dt = new Date(raw);
+              lastVerifiedStr = dt.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+            } catch {
+              lastVerifiedStr = raw;
+            }
+          }
+
+          // Resolved handle / account identity
+          const accountIdentifier =
+            current?.handle && current.handle !== 'Not Connected' && current.handle !== 'Coming Soon'
+              ? current.handle
+              : current?.accountName || current?.account_name || null;
 
           return (
             <div
-              key={platform.id}
-              className={`platform-card ${isMeta ? 'platform-card-meta' : ''} ${isConnected ? 'platform-connected' : 'platform-disconnected'}`}
+              key={def.id}
+              className={`platform-card ${
+                isConnected ? 'is-connected' : isComingSoon ? 'is-coming-soon' : 'is-disconnected'
+              }`}
             >
-              {/* Card Header */}
-              <div className="platform-card-header">
-                <div className="platform-card-icon-wrap">
-                  <PlatformIcon platform={platform.id} size={28} />
+              <div className="platform-card-main">
+                {/* Top Row: Icon + Brand Name + Status Pill */}
+                <div className="platform-card-top">
+                  <div className="platform-brand-info">
+                    <div className="platform-icon-wrap">
+                      <PlatformIcon platform={def.id} size={30} />
+                    </div>
+                    <div className="platform-name-wrap">
+                      <h3 className="platform-name">{def.name}</h3>
+                      <span className="platform-tagline">{def.tagline}</span>
+                    </div>
+                  </div>
+
+                  {/* Status Badge */}
+                  <div className="platform-status-wrap">
+                    {isConnected ? (
+                      <span className="status-pill status-pill-connected" title="Active & ready for publishing">
+                        <span className="status-dot green"></span>
+                        Connected
+                      </span>
+                    ) : isComingSoon ? (
+                      <span className="status-pill status-pill-coming-soon" title="Integration in progress">
+                        <Sparkles size={11} className="mr-1 text-purple-600" />
+                        Coming soon
+                      </span>
+                    ) : isError ? (
+                      <span className="status-pill status-pill-error" title="Verification error">
+                        <span className="status-dot red"></span>
+                        Connection issue
+                      </span>
+                    ) : (
+                      <span className="status-pill status-pill-disconnected" title="Not connected">
+                        <span className="status-dot gray"></span>
+                        Not connected
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="platform-title-area">
-                  <div className="platform-name">{platform.name}</div>
-                  {isMeta && (
-                    <span className="platform-meta-tag">Meta Graph API</span>
+
+                {/* Description */}
+                <p className="platform-card-desc">{def.description}</p>
+
+                {/* Contextual Account Identity or Status Box */}
+                <div className="platform-identity-box">
+                  {isConnected ? (
+                    <div className="identity-content">
+                      <div className="identity-account-row">
+                        <UserCheck size={14} className="identity-icon text-emerald-600" />
+                        <span className="identity-account-name" title={accountIdentifier || 'Connected Account'}>
+                          {accountIdentifier || 'Active Account'}
+                        </span>
+                      </div>
+
+                      <div className="identity-sub-details">
+                        {(current?.accountId || current?.account_id) && (
+                          <span className="identity-account-id">
+                            ID: <code>{current.accountId || current.account_id}</code>
+                          </span>
+                        )}
+                        {lastVerifiedStr && (
+                          <span className="identity-verified-date">
+                            Verified {lastVerifiedStr}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : isComingSoon ? (
+                    <div className="identity-coming-soon-box">
+                      <Clock size={13} className="text-purple-500 flex-shrink-0" />
+                      <span className="text-xs text-slate-500">
+                        {def.id === 'pinterest'
+                          ? 'Pinterest OAuth & Pin publishing integration in development.'
+                          : 'Google OAuth & YouTube video upload integration in development.'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="identity-disconnected-box">
+                      <span className="text-xs text-slate-400">
+                        Account not linked. Connect to enable autonomous multi-channel publishing.
+                      </span>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Status Indicator */}
-              <div className="platform-card-status">
-                <span className={`platform-status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
-                <span className="platform-status-text">
-                  {isConnected ? 'Connected' : 'Disconnected'}
-                </span>
-                {isMeta && !isConnected && (
-                  <span className="platform-setup-badge">Requires App ID &amp; Secret</span>
-                )}
-                {isMeta && isConnected && (
-                  <span className="platform-setup-badge platform-badge-connected">
-                    ✓ Active &amp; Verified
-                  </span>
-                )}
-              </div>
-
-              {/* Handle / Account Display */}
-              <div className="platform-handle-box">
-                {isEditing ? (
-                  <div className="platform-edit-row">
-                    <input
-                      type="text"
-                      value={editHandleText}
-                      onChange={(e) => setEditHandleText(e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(e, platform.id)}
-                      className="platform-edit-input"
-                      autoFocus
-                      placeholder="Enter handle..."
-                    />
+              {/* Card Footer Actions */}
+              <div className="platform-card-footer">
+                {isConnected ? (
+                  <div className="connected-btn-group">
                     <button
-                      onClick={() => saveEdit(platform.id)}
-                      className="platform-save-button"
-                      title="Save (Enter)"
-                      style={{ color: '#10b981' }}
+                      type="button"
+                      onClick={() => handleRefresh(def.id)}
+                      disabled={isActionLoading}
+                      className="btn-card-verify"
+                      title="Re-verify credentials against platform API"
                     >
-                      ✓
+                      <RefreshCw size={13} className={isActionLoading ? 'animate-spin' : ''} />
+                      <span>{isActionLoading ? 'Verifying...' : 'Verify'}</span>
                     </button>
                     <button
-                      onClick={cancelEdit}
-                      className="platform-save-button"
-                      title="Cancel (Esc)"
-                      style={{ color: '#ef4444', marginLeft: '2px' }}
+                      type="button"
+                      onClick={() => promptDisconnect(def.id, def.name, accountIdentifier || def.name)}
+                      disabled={isActionLoading}
+                      className="btn-card-disconnect"
+                      title="Disconnect and revoke stored credentials"
                     >
-                      ✕
+                      <LogOut size={13} />
+                      <span>Disconnect</span>
+                    </button>
+                  </div>
+                ) : isComingSoon ? (
+                  <div className="coming-soon-btn-group">
+                    <button
+                      type="button"
+                      disabled
+                      className="btn-card-coming-soon"
+                      title="This platform integration is coming soon"
+                    >
+                      <Lock size={12} />
+                      <span>Coming soon</span>
                     </button>
                   </div>
                 ) : (
-                  <>
-                    <span className={`platform-handle-text ${!isConnected ? 'platform-handle-empty' : ''}`}>
-                      {platform.handle}
-                    </span>
-                    {isConnected && (
+                  <div className="disconnected-btn-group">
+                    {def.type === 'meta_oauth' ? (
                       <button
-                        onClick={() => startEdit(platform)}
-                        className="platform-edit-button"
-                        title="Edit handle"
+                        type="button"
+                        onClick={() => handleConnectMeta(def.id as 'facebook' | 'instagram')}
+                        disabled={isActionLoading}
+                        className="btn-card-connect-meta"
                       >
-                        <Edit2 size={12} />
+                        {isActionLoading ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Globe size={14} />
+                            <span>Connect with Meta</span>
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModalError(null);
+                          setActiveModal(def.id as 'bluesky' | 'linkedin');
+                        }}
+                        disabled={isActionLoading}
+                        className="btn-card-connect-standard"
+                      >
+                        <Key size={13} />
+                        <span>Connect {def.name}</span>
                       </button>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
-
-              {/* Meta Platform Connected Verified Info Card */}
-              {isMeta && isConnected && (
-                <div className="platform-meta-connected-card">
-                  <div className="platform-meta-connected-pill">
-                    <CheckCircle2 size={13} style={{ color: '#10b981' }} />
-                    <span>Meta Graph API Connected</span>
-                  </div>
-                  <div className="platform-meta-connected-meta">
-                    <span>App ID: <code>{creds.appId || '2231204290777395'}</code></span>
-                    <span>Page: <strong>{platform.handle}</strong></span>
-                  </div>
-                  <div className="platform-meta-connected-sub">
-                    ✓ Live publishing &amp; Graph API integration active
-                  </div>
-                </div>
-              )}
-
-              {/* ===============================================================
-                  META CREDENTIALS INPUT SECTION (For Instagram & Facebook)
-                  =============================================================== */}
-              {isMeta && (
-                <div className="platform-meta-config-section">
-                  <div className="platform-config-header">
-                    <div className="platform-config-title">
-                      <Key size={13} />
-                      <span>{platform.name} OAuth Credentials</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setExpandedConfigId(isExpanded ? null : platform.id)}
-                      className="platform-toggle-config-btn"
-                    >
-                      {isExpanded ? 'Hide Settings' : isConnected ? 'Edit Credentials' : 'Add App ID & Secret'}
-                    </button>
-                  </div>
-
-                  {/* Always show if disconnected or expanded */}
-                  {(!isConnected || isExpanded) && (
-                    <div className="platform-config-drawer animate-fadeIn">
-                      {/* App ID Field */}
-                      <div className="platform-input-group">
-                        <label className="platform-input-label">
-                          <span>Meta App ID (Client ID)</span>
-                          <span className="platform-input-required">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={creds.appId}
-                          onChange={(e) => updateCred(platform.id, 'appId', e.target.value)}
-                          placeholder="e.g. 109283746501928"
-                          className="platform-cred-input"
-                        />
-                      </div>
-
-                      {/* App Secret Field */}
-                      <div className="platform-input-group">
-                        <label className="platform-input-label">
-                          <span>Meta App Secret (Client Secret)</span>
-                          <span className="platform-input-required">*</span>
-                        </label>
-                        <div className="platform-password-wrapper">
-                          <input
-                            type={creds.showSecret ? 'text' : 'password'}
-                            value={creds.appSecret}
-                            onChange={(e) => updateCred(platform.id, 'appSecret', e.target.value)}
-                            placeholder="e.g. 8f9a2b1c4d7e6f5a..."
-                            className="platform-cred-input platform-cred-input-pass"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => updateCred(platform.id, 'showSecret', !creds.showSecret)}
-                            className="platform-pass-toggle"
-                            title={creds.showSecret ? 'Hide secret' : 'Show secret'}
-                          >
-                            {creds.showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Page ID / Account ID Field */}
-                      <div className="platform-input-group">
-                        <label className="platform-input-label">
-                          <span>{platform.id === 'instagram' ? 'Instagram Business Account ID' : 'Facebook Page ID'}</span>
-                          <span className="platform-input-optional">(Optional)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={creds.pageId}
-                          onChange={(e) => updateCred(platform.id, 'pageId', e.target.value)}
-                          placeholder={platform.id === 'instagram' ? 'e.g. 178414000123456 or @handle' : 'e.g. 10492817482910'}
-                          className="platform-cred-input"
-                        />
-                      </div>
-
-                      {/* Access Token Field (Optional Direct Token) */}
-                      <div className="platform-input-group">
-                        <label className="platform-input-label">
-                          <span>Page / User Access Token</span>
-                          <span className="platform-input-optional">(Optional Graph Token)</span>
-                        </label>
-                        <input
-                          type="password"
-                          value={creds.accessToken}
-                          onChange={(e) => updateCred(platform.id, 'accessToken', e.target.value)}
-                          placeholder="e.g. EAABwzLIX45wBO..."
-                          className="platform-cred-input"
-                        />
-                      </div>
-
-                      {/* Incomplete Config / Error Alert */}
-                      {errorMsg && (
-                        <div className={`platform-alert ${hasIncompleteAlert ? 'platform-alert-warning' : 'platform-alert-error'}`}>
-                          <AlertCircle size={15} className="platform-alert-icon" />
-                          <div className="platform-alert-text">
-                            <strong>{hasIncompleteAlert ? 'Incomplete Configuration:' : 'Verification Notice:'}</strong> {errorMsg}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Success Feedback */}
-                      {successMsg && (
-                        <div className="platform-alert platform-alert-success">
-                          <CheckCircle2 size={15} className="platform-alert-icon" />
-                          <div className="platform-alert-text">{successMsg}</div>
-                        </div>
-                      )}
-
-                      {/* Last Generated OAuth URL */}
-                      {authUrl && (
-                        <div className="platform-generated-url-box">
-                          <div className="platform-url-label">
-                            <span>OAuth Request URL Sent:</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(authUrl, platform.id)}
-                              className="platform-copy-small-btn"
-                            >
-                              {hasCopiedAuthUrl ? <Check size={11} /> : <Copy size={11} />}
-                              <span>{hasCopiedAuthUrl ? 'Copied' : 'Copy'}</span>
-                            </button>
-                          </div>
-                          <code className="platform-url-preview">{authUrl}</code>
-                        </div>
-                      )}
-
-                      {/* Meta Action Buttons */}
-                      <div className="platform-meta-actions">
-                        <button
-                          type="button"
-                          onClick={() => handleSendOAuthRequest(platform.id, 'popup')}
-                          className="platform-oauth-btn"
-                          title="Open Meta OAuth Dialog in a Popup Window"
-                        >
-                          <ExternalLink size={14} />
-                          <span>Send Meta OAuth Request</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleSendOAuthRequest(platform.id, 'direct')}
-                          className="platform-oauth-btn platform-oauth-direct-btn"
-                          title="Authorize in this browser window directly (recommended if popups are blocked)"
-                        >
-                          <Globe size={13} />
-                          <span>Authorize (Direct Redirect)</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={isVerifying}
-                          onClick={() => handleVerifyCredentials(platform.id)}
-                          className="platform-verify-btn"
-                          title="Validate credentials with Meta Graph API"
-                        >
-                          {isVerifying ? (
-                            <>
-                              <RefreshCw size={13} className="animate-spin" />
-                              <span>Verifying with Meta...</span>
-                            </>
-                          ) : (
-                            <>
-                              <ShieldCheck size={14} />
-                              <span>Verify Credentials</span>
-                            </>
-                          )}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDirectActivate(platform.id)}
-                          className="platform-activate-btn"
-                          title="Completed login on Facebook? Click here to immediately confirm & activate connection!"
-                        >
-                          <Zap size={14} />
-                          <span>Confirm &amp; Activate Connection</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Standard Platform Disconnect / Connect Button */}
-              {(!isMeta || isConnected) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isMeta && isConnected) {
-                      handleDisconnect(platform.id);
-                    } else {
-                      onToggleStatus(platform.id);
-                    }
-                  }}
-                  className={`platform-action-button ${isConnected ? 'disconnect' : 'connect'}`}
-                >
-                  {isConnected ? 'Disconnect' : 'Connect'}
-                </button>
-              )}
             </div>
           );
         })}
       </div>
+
+      {/* =========================================================================
+          MODAL: DISCONNECT CONFIRMATION
+          ========================================================================= */}
+      {disconnectTarget && (
+        <div className="modal-overlay" onClick={() => !actionLoading[disconnectTarget.id] && setDisconnectTarget(null)}>
+          <div className="modal-card modal-card-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-wrap">
+                <AlertTriangle size={20} className="text-amber-500" />
+                <h3>Disconnect {disconnectTarget.name}?</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDisconnectTarget(null)}
+                className="modal-close-btn"
+                disabled={Boolean(actionLoading[disconnectTarget.id])}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <p className="modal-instructions">
+                Are you sure you want to disconnect <strong>{disconnectTarget.handle}</strong>?
+                Encrypted credentials stored in Supabase will be permanently deleted. Scheduled posts targeting this platform will be paused.
+              </p>
+            </div>
+
+            <div className="modal-footer">
+              <button
+                type="button"
+                onClick={() => setDisconnectTarget(null)}
+                disabled={Boolean(actionLoading[disconnectTarget.id])}
+                className="btn-modal-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeDisconnect}
+                disabled={Boolean(actionLoading[disconnectTarget.id])}
+                className="btn-modal-danger"
+              >
+                {actionLoading[disconnectTarget.id] ? 'Disconnecting...' : 'Yes, Disconnect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: BLUESKY CREDENTIALS
+          ========================================================================= */}
+      {activeModal === 'bluesky' && (
+        <div className="modal-overlay" onClick={() => !modalSubmitting && setActiveModal(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-wrap">
+                <PlatformIcon platform="bluesky" size={22} />
+                <h3>Connect Bluesky Account</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="modal-close-btn"
+                disabled={modalSubmitting}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitBluesky} className="modal-body">
+              <p className="modal-instructions">
+                Enter your Bluesky handle and an App Password. Passwords are encrypted with authenticated AES encryption and stored securely on the backend.
+              </p>
+
+              {modalError && (
+                <div className="modal-error-box">
+                  <AlertCircle size={15} />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
+              <div className="modal-field">
+                <label htmlFor="bsky-handle">Bluesky Handle</label>
+                <input
+                  id="bsky-handle"
+                  type="text"
+                  placeholder="e.g. username.bsky.social"
+                  value={blueskyHandle}
+                  onChange={(e) => setBlueskyHandle(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="modal-field">
+                <div className="label-with-link">
+                  <label htmlFor="bsky-pwd">App Password</label>
+                  <a
+                    href="https://bsky.app/settings/app-passwords"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="modal-helper-link"
+                  >
+                    Generate App Password <ExternalLink size={11} />
+                  </a>
+                </div>
+                <input
+                  id="bsky-pwd"
+                  type="password"
+                  placeholder="xxxx-xxxx-xxxx-xxxx"
+                  value={blueskyPassword}
+                  onChange={(e) => setBlueskyPassword(e.target.value)}
+                  required
+                />
+                <span className="field-hint">
+                  Use an App Password rather than your primary account password for security.
+                </span>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  disabled={modalSubmitting}
+                  className="btn-modal-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={modalSubmitting}
+                  className="btn-modal-submit"
+                >
+                  {modalSubmitting ? 'Verifying...' : 'Verify & Connect'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: LINKEDIN CREDENTIALS
+          ========================================================================= */}
+      {activeModal === 'linkedin' && (
+        <div className="modal-overlay" onClick={() => !modalSubmitting && setActiveModal(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-wrap">
+                <PlatformIcon platform="linkedin" size={22} />
+                <h3>Connect LinkedIn Account</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="modal-close-btn"
+                disabled={modalSubmitting}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitLinkedIn} className="modal-body">
+              <p className="modal-instructions">
+                Provide your LinkedIn OAuth 2.0 Bearer access token. OmniPulse verifies access with LinkedIn and encrypts the token at rest.
+              </p>
+
+              {modalError && (
+                <div className="modal-error-box">
+                  <AlertCircle size={15} />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
+              <div className="modal-field">
+                <div className="label-with-link">
+                  <label htmlFor="li-token">LinkedIn Access Token</label>
+                  <a
+                    href="https://www.linkedin.com/developers/tools/oauth"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="modal-helper-link"
+                  >
+                    LinkedIn Token Generator <ExternalLink size={11} />
+                  </a>
+                </div>
+                <input
+                  id="li-token"
+                  type="password"
+                  placeholder="AQ..."
+                  value={linkedinToken}
+                  onChange={(e) => setLinkedinToken(e.target.value)}
+                  required
+                  autoFocus
+                />
+                <span className="field-hint">
+                  Requires <code>w_member_social</code> scope.
+                </span>
+              </div>
+
+              <div className="modal-field">
+                <label htmlFor="li-urn">Author URN (Optional)</label>
+                <input
+                  id="li-urn"
+                  type="text"
+                  placeholder="urn:li:person:... (auto-resolved if left empty)"
+                  value={linkedinUrn}
+                  onChange={(e) => setLinkedinUrn(e.target.value)}
+                />
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  disabled={modalSubmitting}
+                  className="btn-modal-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={modalSubmitting}
+                  className="btn-modal-submit"
+                >
+                  {modalSubmitting ? 'Verifying...' : 'Verify & Connect'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-export default Platforms;

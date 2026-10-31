@@ -18,9 +18,16 @@ class InstagramAdapter(BasePlatformAdapter):
     def platform_name(self) -> str:
         return "instagram"
 
+    async def _resolve_credentials(self) -> tuple[str, str]:
+        from app.services.credential_service import credential_service
+        creds = await credential_service.get_credentials("instagram")
+        if creds and creds.get("access_token") and creds.get("account_id"):
+            return creds["access_token"], creds["account_id"]
+        # Legacy static tokens are eliminated from active auth/publishing paths
+        return "", ""
+
     async def validate_connection(self) -> bool:
-        account_id = settings.INSTAGRAM_BUSINESS_ACCOUNT_ID.strip()
-        token = settings.INSTAGRAM_ACCESS_TOKEN.strip() or settings.META_USER_TOKEN.strip() or settings.FACEBOOK_PAGE_ACCESS_TOKEN.strip()
+        token, account_id = await self._resolve_credentials()
 
         if not account_id or not token:
             return False
@@ -63,21 +70,20 @@ class InstagramAdapter(BasePlatformAdapter):
             )
 
         # 3. Live Instagram Graph API Dispatch
-        account_id = settings.INSTAGRAM_BUSINESS_ACCOUNT_ID.strip()
-        token = settings.INSTAGRAM_ACCESS_TOKEN.strip() or settings.META_USER_TOKEN.strip() or settings.FACEBOOK_PAGE_ACCESS_TOKEN.strip()
+        token, account_id = await self._resolve_credentials()
 
         if not account_id:
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Missing INSTAGRAM_BUSINESS_ACCOUNT_ID in backend/.env",
+                error_message="Missing Instagram Business Account ID. Please connect your Instagram Business Account.",
             )
 
         if not token:
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Missing META_USER_TOKEN or FACEBOOK_PAGE_ACCESS_TOKEN in backend/.env",
+                error_message="Missing Instagram access token. Please connect your Instagram Account.",
             )
 
         # Resolve relative public URLs into fully qualified public HTTPS URLs

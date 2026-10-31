@@ -108,8 +108,19 @@ export interface PlatformConnection {
   id: string;
   name: string;
   handle: string;
-  status: 'connected' | 'disconnected' | 'error';
+  status: 'connected' | 'disconnected' | 'error' | 'coming_soon';
   connectedUser?: string;
+  connected_user?: string;
+  accountId?: string;
+  account_id?: string;
+  accountName?: string;
+  account_name?: string;
+  lastVerifiedAt?: string;
+  last_verified_at?: string;
+  isConfigured?: boolean;
+  is_configured?: boolean;
+  isComingSoon?: boolean;
+  is_coming_soon?: boolean;
 }
 
 export function normalizePost(p: any): SocialPost {
@@ -248,6 +259,70 @@ export const api = {
   },
 
   /**
+   * Initiate Meta OAuth (Facebook or Instagram)
+   */
+  async initiateMetaAuth(
+    platform: 'facebook' | 'instagram',
+    redirectOrigin?: string
+  ): Promise<{ auth_url: string; state: string; platform: string }> {
+    return fetchWithAuth('/api/v1/connections/meta/authorize', {
+      method: 'POST',
+      body: JSON.stringify({
+        platform,
+        redirect_origin: redirectOrigin || window.location.origin,
+      }),
+    });
+  },
+
+  /**
+   * Connect Bluesky via AT Protocol App Password
+   */
+  async connectBluesky(
+    handle: string,
+    appPassword: string
+  ): Promise<{ platform: string; is_valid: boolean; status: string; message: string; account_name?: string }> {
+    return fetchWithAuth('/api/v1/connections/bluesky/connect', {
+      method: 'POST',
+      body: JSON.stringify({ handle, app_password: appPassword }),
+    });
+  },
+
+  /**
+   * Connect LinkedIn via OAuth Bearer token
+   */
+  async connectLinkedIn(
+    accessToken: string,
+    authorUrn?: string
+  ): Promise<{ platform: string; is_valid: boolean; status: string; message: string; account_name?: string }> {
+    return fetchWithAuth('/api/v1/connections/linkedin/connect', {
+      method: 'POST',
+      body: JSON.stringify({ access_token: accessToken, author_urn: authorUrn || undefined }),
+    });
+  },
+
+  /**
+   * Disconnect a platform and delete credentials
+   */
+  async disconnectPlatform(
+    platform: string
+  ): Promise<{ success: boolean; platform: string; status: string; message: string }> {
+    return fetchWithAuth(`/api/v1/connections/${platform}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Refresh or re-verify a platform connection
+   */
+  async refreshConnection(
+    platform: string
+  ): Promise<{ platform: string; is_valid: boolean; status: string; message: string; account_name?: string }> {
+    return fetchWithAuth(`/api/v1/connections/${platform}/refresh`, {
+      method: 'POST',
+    });
+  },
+
+  /**
    * Verify a platform credentials and handshake
    */
   async verifyConnection(
@@ -267,7 +342,7 @@ export const api = {
     status: string;
     message: string;
   }> {
-    return fetchWithAuth('/api/v1/connections/verify', {
+    return fetchWithAuth(`/api/v1/connections/${platform}/verify`, {
       method: 'POST',
       body: JSON.stringify({ platform, ...(credentials || {}) }),
     });

@@ -26,9 +26,8 @@ def test_publishing_defaults_to_safe_mock_mode():
     assert default_settings.PUBLISHING_MODE == "mock"
 
 
-
 def test_connections_endpoint_contains_active_platforms():
-    """Verify connections endpoint returns the 4 active platforms and excludes WhatsApp."""
+    """Verify connections endpoint returns registered platforms (including coming soon) and excludes WhatsApp."""
     resp = client.get("/api/v1/connections")
     assert resp.status_code == 200
     conn_list = resp.json().get("connections", [])
@@ -37,6 +36,8 @@ def test_connections_endpoint_contains_active_platforms():
     assert "linkedin" in platform_ids
     assert "facebook" in platform_ids
     assert "instagram" in platform_ids
+    assert "pinterest" in platform_ids
+    assert "youtube" in platform_ids
     assert "whatsapp" not in platform_ids
 
 
@@ -70,7 +71,7 @@ def test_connections_endpoint_never_exposes_secrets():
     assert resp.status_code == 200
     data = resp.json()
     conns = data.get("connections", [])
-    assert len(conns) == 4
+    assert len(conns) == 6
 
     # Ensure no token values or passwords appear in any field
     for c in conns:

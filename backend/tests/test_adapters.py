@@ -97,7 +97,8 @@ async def test_instagram_dry_run_mode():
 @pytest.mark.anyio
 async def test_instagram_requires_media_in_live_mode():
     adapter = InstagramAdapter()
-    with patch.object(settings, "INSTAGRAM_BUSINESS_ACCOUNT_ID", "178414000"), patch.object(settings, "META_USER_TOKEN", "token123"):
+    with patch("app.services.credential_service.credential_service.get_credentials", new_callable=AsyncMock) as mock_creds:
+        mock_creds.return_value = {"access_token": "token123", "account_id": "178414000"}
         res = await adapter.publish_post(content="Text only without media", media_url=None, dry_run=False)
         assert res.status == "failed"
         assert "requires an image or video URL" in res.error_message
