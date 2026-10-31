@@ -180,3 +180,4 @@ class PinterestAdapter(BasePlatformAdapter):
 
 
 pinterest_adapter = PinterestAdapter()
+

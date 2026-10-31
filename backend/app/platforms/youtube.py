@@ -184,3 +184,4 @@ class YouTubeAdapter(BasePlatformAdapter):
 
 
 youtube_adapter = YouTubeAdapter()
+

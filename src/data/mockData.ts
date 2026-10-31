@@ -187,9 +187,9 @@ export const mockConnectedPlatforms: ConnectedPlatform[] = [
   {
     id: 'linkedin',
     name: 'LinkedIn',
-    handle: 'Rushikesh Chavan',
+    handle: 'Vaishnavi Kolekar',
     status: 'connected',
-    connectedUser: 'Rushikesh Chavan'
+    connectedUser: 'Vaishnavi Kolekar'
   },
   {
     id: 'instagram',
