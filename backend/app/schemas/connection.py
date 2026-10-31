@@ -77,3 +77,9 @@ class ConnectionDisconnectResponse(BaseModel):
     platform: str
     status: str
     message: str
+
+
+class CreatePinterestBoardRequest(BaseModel):
+    name: str = Field(..., description="Board name (max 50 chars)")
+    description: Optional[str] = Field(default="Created by OmniPulse AI", description="Board description")
+    privacy: Optional[str] = Field(default="PUBLIC", description="'PUBLIC' or 'SECRET'")

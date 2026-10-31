@@ -336,6 +336,16 @@ export const api = {
   },
 
   /**
+   * Create a new Pinterest board in active environment (Sandbox)
+   */
+  async createPinterestBoard(name: string, description?: string): Promise<{ board: { id: string; name: string } }> {
+    return fetchWithAuth<{ board: { id: string; name: string } }>('/api/v1/connections/pinterest/boards', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    });
+  },
+
+  /**
    * Connect Bluesky via AT Protocol App Password
    */
   async connectBluesky(

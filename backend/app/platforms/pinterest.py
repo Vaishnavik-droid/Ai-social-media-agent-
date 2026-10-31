@@ -129,37 +129,116 @@ class PinterestAdapter(BasePlatformAdapter):
                 logger.error(f"Pinterest connection validation failed: {e}")
                 return False
 
-    async def get_boards(self) -> List[Dict[str, Any]]:
+    async def create_board(
+        self,
+        name: str,
+        description: Optional[str] = "Created by OmniPulse AI",
+        privacy: str = "PUBLIC"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Creates a new board via Pinterest API (POST /v5/boards).
+        Supports Sandbox and Production environments.
+        """
+        token, _ = await self._resolve_credentials()
+        if not token:
+            logger.error("Cannot create Pinterest board: missing credentials.")
+            return None
+
+        clean_name = name.strip()[:50]  # Pinterest board name limit is 50 chars
+        payload = {
+            "name": clean_name,
+            "description": (description or "Created by OmniPulse AI")[:500],
+            "privacy": privacy.upper() if privacy.upper() in ("PUBLIC", "SECRET") else "PUBLIC"
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                resp = await client.post(
+                    f"{self.API_BASE_URL}/boards",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    b_id = str(data.get("id", "")).strip()
+                    b_name = data.get("name", clean_name)
+                    logger.info(f"Successfully created Pinterest board '{b_name}' (ID: {b_id})")
+                    return {"id": b_id, "name": b_name}
+                else:
+                    logger.error(f"Failed to create Pinterest board (HTTP {resp.status_code}): {resp.text}")
+                    return None
+            except Exception as e:
+                logger.error(f"Network error creating Pinterest board: {e}")
+                return None
+
+    async def get_boards(self, auto_create_default: bool = True) -> List[Dict[str, Any]]:
         """
         Retrieves user's Pinterest boards for pin placement.
+        Handles Sandbox bookmark pagination (using page_size=250) until boards are found or pagination is exhausted.
+        If no Sandbox boards exist, automatically creates a default Sandbox board if enabled.
         """
         token, _ = await self._resolve_credentials()
         if not token:
             return []
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        all_boards: List[Dict[str, Any]] = []
+        bookmark: Optional[str] = None
+        seen_bookmarks = set()
+        max_pages = 10
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
             try:
-                resp = await client.get(
-                    f"{self.API_BASE_URL}/boards",
-                    headers={"Authorization": f"Bearer {token}"}
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    items = data.get("items", [])
-                    return [{"id": b["id"], "name": b["name"]} for b in items]
-                elif resp.status_code == 401:
-                    new_token = await self._refresh_access_token()
-                    if new_token:
-                        retry_resp = await client.get(
-                            f"{self.API_BASE_URL}/boards",
-                            headers={"Authorization": f"Bearer {new_token}"}
-                        )
-                        if retry_resp.status_code == 200:
-                            data = retry_resp.json()
-                            items = data.get("items", [])
-                            return [{"id": b["id"], "name": b["name"]} for b in items]
+                for _ in range(max_pages):
+                    params: Dict[str, Any] = {"page_size": 250}
+                    if bookmark:
+                        params["bookmark"] = bookmark
+
+                    resp = await client.get(
+                        f"{self.API_BASE_URL}/boards",
+                        headers={"Authorization": f"Bearer {token}"},
+                        params=params,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        items = data.get("items", [])
+                        for b in items:
+                            b_id = str(b.get("id", "")).strip()
+                            b_name = b.get("name", "Untitled Board")
+                            if b_id and not any(existing["id"] == b_id for existing in all_boards):
+                                all_boards.append({"id": b_id, "name": b_name})
+
+                        next_bookmark = data.get("bookmark")
+                        if next_bookmark and next_bookmark not in seen_bookmarks:
+                            seen_bookmarks.add(next_bookmark)
+                            bookmark = next_bookmark
+                        else:
+                            break
+                    elif resp.status_code == 401 and not self._get_sandbox_token():
+                        new_token = await self._refresh_access_token()
+                        if new_token:
+                            token = new_token
+                            continue
+                        break
+                    else:
+                        logger.warning(f"Pinterest boards endpoint returned HTTP {resp.status_code}: {resp.text}")
+                        break
             except Exception as e:
                 logger.error(f"Error fetching Pinterest boards: {e}")
+
+        # If boards were found via pagination, return them
+        if all_boards:
+            return all_boards
+
+        # If no boards found in Sandbox environment, automatically create a default Sandbox board
+        if auto_create_default:
+            logger.info("No Sandbox boards found. Auto-creating 'OmniPulse Sandbox Board' via API...")
+            created = await self.create_board(name="OmniPulse Sandbox Board", description="Default board for OmniPulse AI Sandbox testing")
+            if created:
+                return [created]
+
         return []
 
     async def publish_post(

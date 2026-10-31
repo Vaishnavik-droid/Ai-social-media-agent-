@@ -216,6 +216,133 @@ async def test_pinterest_sandbox_board_fetching_dispatches_to_sandbox_api():
 
 
 @pytest.mark.anyio
+async def test_pinterest_sandbox_pagination_with_bookmarks():
+    """
+    Pinterest Sandbox documents that GET /v5/boards can return an empty items array
+    with a bookmark even when boards exist. Verify get_boards() requests page_size=250
+    and iterates bookmarks until boards are retrieved.
+    """
+    adapter = PinterestAdapter()
+    fake_sandbox_token = "pina_sandbox_valid_test_token"
+
+    resp_page_1 = httpx.Response(
+        200,
+        json={"items": [], "bookmark": "bookmark_for_page_2"},
+        request=httpx.Request("GET", "https://api-sandbox.pinterest.com/v5/boards"),
+    )
+    resp_page_2 = httpx.Response(
+        200,
+        json={
+            "items": [{"id": "board_from_page_2", "name": "Found On Page 2"}],
+            "bookmark": None,
+        },
+        request=httpx.Request("GET", "https://api-sandbox.pinterest.com/v5/boards"),
+    )
+
+    with patch.dict(os.environ, {"PINTEREST_SANDBOX_TOKEN": fake_sandbox_token}), \
+         patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=[resp_page_1, resp_page_2]) as mock_get:
+
+        boards = await adapter.get_boards(auto_create_default=False)
+        assert len(boards) == 1
+        assert boards[0]["id"] == "board_from_page_2"
+        assert boards[0]["name"] == "Found On Page 2"
+
+        # Verify 2 paginated calls were made
+        assert mock_get.call_count == 2
+        first_call_params = mock_get.call_args_list[0].kwargs["params"]
+        second_call_params = mock_get.call_args_list[1].kwargs["params"]
+        assert first_call_params["page_size"] == 250
+        assert "bookmark" not in first_call_params
+        assert second_call_params["page_size"] == 250
+        assert second_call_params["bookmark"] == "bookmark_for_page_2"
+
+
+@pytest.mark.anyio
+async def test_pinterest_create_board_dispatches_to_sandbox_api():
+    """
+    Verify create_board() dispatches POST to https://api-sandbox.pinterest.com/v5/boards
+    with valid name, description, and privacy, returning the created board object.
+    """
+    adapter = PinterestAdapter()
+    fake_sandbox_token = "pina_sandbox_valid_test_token"
+    fake_board_id = "new_sandbox_board_777"
+
+    fake_response = httpx.Response(
+        201,
+        json={
+            "id": fake_board_id,
+            "name": "OmniPulse Campaign 2026",
+            "description": "Visual board description",
+            "privacy": "PUBLIC",
+        },
+        request=httpx.Request("POST", "https://api-sandbox.pinterest.com/v5/boards"),
+    )
+
+    with patch.dict(os.environ, {"PINTEREST_SANDBOX_TOKEN": fake_sandbox_token}), \
+         patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=fake_response) as mock_post:
+
+        created = await adapter.create_board(
+            name="OmniPulse Campaign 2026",
+            description="Visual board description",
+            privacy="PUBLIC"
+        )
+
+        assert created is not None
+        assert created["id"] == fake_board_id
+        assert created["name"] == "OmniPulse Campaign 2026"
+
+        mock_post.assert_called_once()
+        called_url = mock_post.call_args.args[0]
+        called_payload = mock_post.call_args.kwargs["json"]
+        assert called_url == "https://api-sandbox.pinterest.com/v5/boards"
+        assert called_payload["name"] == "OmniPulse Campaign 2026"
+        assert called_payload["privacy"] == "PUBLIC"
+
+
+@pytest.mark.anyio
+async def test_pinterest_auto_creates_default_sandbox_board_when_none_exist():
+    """
+    Verify that if no Sandbox boards exist across pagination, get_boards()
+    automatically creates a default Sandbox board so the dropdown is never empty.
+    """
+    adapter = PinterestAdapter()
+    fake_sandbox_token = "pina_sandbox_valid_test_token"
+
+    empty_response = httpx.Response(
+        200,
+        json={"items": [], "bookmark": None},
+        request=httpx.Request("GET", "https://api-sandbox.pinterest.com/v5/boards"),
+    )
+    create_response = httpx.Response(
+        201,
+        json={"id": "auto_board_123", "name": "OmniPulse Sandbox Board"},
+        request=httpx.Request("POST", "https://api-sandbox.pinterest.com/v5/boards"),
+    )
+
+    with patch.dict(os.environ, {"PINTEREST_SANDBOX_TOKEN": fake_sandbox_token}), \
+         patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=empty_response), \
+         patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=create_response):
+
+        boards = await adapter.get_boards(auto_create_default=True)
+        assert len(boards) == 1
+        assert boards[0]["id"] == "auto_board_123"
+        assert boards[0]["name"] == "OmniPulse Sandbox Board"
+
+
+def test_create_pinterest_board_route():
+    """
+    Verify POST /api/v1/connections/pinterest/boards creates and returns board.
+    """
+    with patch("app.platforms.pinterest.pinterest_adapter.create_board", new_callable=AsyncMock) as mock_create:
+        mock_create.return_value = {"id": "route_b_1", "name": "Frontend Created Board"}
+        resp = client.post("/api/v1/connections/pinterest/boards", json={"name": "Frontend Created Board"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["board"]["id"] == "route_b_1"
+        assert data["board"]["name"] == "Frontend Created Board"
+
+
+@pytest.mark.anyio
 async def test_pinterest_sandbox_does_not_attempt_oauth_refresh():
     """
     Verify _refresh_access_token() immediately returns None when PINTEREST_SANDBOX_TOKEN

@@ -58,6 +58,28 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   const [pinterestBoards, setPinterestBoards] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedBoardId, setSelectedBoardId] = useState<string>('');
   const [isLoadingBoards, setIsLoadingBoards] = useState(false);
+  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
+
+  const handleCreateBoard = async () => {
+    const boardName = prompt('Enter a name for the new Pinterest board:');
+    if (!boardName || !boardName.trim()) return;
+
+    setIsCreatingBoard(true);
+    try {
+      const res = await api.createPinterestBoard(boardName.trim());
+      if (res?.board) {
+        setPinterestBoards((prev) => {
+          const exists = prev.some((b) => b.id === res.board.id);
+          return exists ? prev : [...prev, res.board];
+        });
+        setSelectedBoardId(res.board.id);
+      }
+    } catch (err: any) {
+      alert(`Could not create Pinterest board: ${err?.message || 'Check Sandbox permissions'}`);
+    } finally {
+      setIsCreatingBoard(false);
+    }
+  };
 
   // Fetch Pinterest boards when Pinterest is selected
   useEffect(() => {
@@ -707,21 +729,41 @@ export const CreatePost: React.FC<CreatePostProps> = ({
                 <span style={{ fontWeight: 600, color: '#e2e8f0' }}>Pinterest Destination Board:</span>
                 {isLoadingBoards && <span style={{ color: '#94a3b8' }}>Loading boards...</span>}
               </div>
-              {pinterestBoards.length > 0 ? (
-                <select
-                  value={selectedBoardId}
-                  onChange={(e) => setSelectedBoardId(e.target.value)}
-                  style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: '0.375rem', padding: '0.35rem 0.6rem', color: '#f8fafc', fontSize: '0.8rem' }}
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                {pinterestBoards.length > 0 ? (
+                  <select
+                    value={selectedBoardId}
+                    onChange={(e) => setSelectedBoardId(e.target.value)}
+                    style={{ flex: 1, background: '#1e293b', border: '1px solid #334155', borderRadius: '0.375rem', padding: '0.35rem 0.6rem', color: '#f8fafc', fontSize: '0.8rem' }}
+                  >
+                    {pinterestBoards.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8', flex: 1 }}>
+                    {isLoadingBoards ? 'Fetching Pinterest Sandbox boards...' : 'No Sandbox boards found.'}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleCreateBoard}
+                  disabled={isCreatingBoard}
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '0.35rem 0.6rem',
+                    background: '#334155',
+                    color: '#f8fafc',
+                    border: '1px solid #475569',
+                    borderRadius: '0.375rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Create a new board in Pinterest Sandbox"
                 >
-                  {pinterestBoards.map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-              ) : (
-                <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
-                  {isLoadingBoards ? 'Fetching Pinterest boards...' : 'No Pinterest boards found. OmniPulse will use your default board if available.'}
-                </p>
-              )}
+                  {isCreatingBoard ? 'Creating...' : '+ New Board'}
+                </button>
+              </div>
             </div>
           )}
         </div>

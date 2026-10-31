@@ -27,6 +27,7 @@ from app.schemas.connection import (
     MetaAuthorizeResponse,
     OAuthAuthorizeRequest,
     OAuthAuthorizeResponse,
+    CreatePinterestBoardRequest,
 )
 from app.services.credential_service import credential_service
 
@@ -791,8 +792,30 @@ async def youtube_oauth_callback(
 
 @router.get("/pinterest/boards")
 async def get_pinterest_boards():
+    """
+    Retrieves user's Pinterest boards in the active Sandbox environment.
+    Handles pagination and auto-creates a default board if none exist.
+    """
     boards = await pinterest_adapter.get_boards()
     return {"boards": boards}
+
+
+@router.post("/pinterest/boards")
+async def create_pinterest_board_endpoint(payload: CreatePinterestBoardRequest):
+    """
+    Creates a new Pinterest board in the active environment (Sandbox).
+    """
+    board = await pinterest_adapter.create_board(
+        name=payload.name,
+        description=payload.description,
+        privacy=payload.privacy or "PUBLIC"
+    )
+    if not board:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to create board on Pinterest Sandbox. Please check Sandbox permissions."
+        )
+    return {"board": board}
 
 # =============================================================================
 # 3. Direct Platform Connect Endpoints (Bluesky & LinkedIn)
