@@ -85,7 +85,8 @@ class BlueskyAdapter(BasePlatformAdapter):
         self,
         content: str,
         media_url: Optional[str] = None,
-        dry_run: bool = False
+        dry_run: bool = False,
+        **kwargs
     ) -> PlatformResult:
         # 1. Validation & Auto-truncate for Bluesky 300-char limit
         if len(content) > 300:

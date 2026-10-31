@@ -7,7 +7,7 @@ class BasePlatformAdapter(ABC):
     @property
     @abstractmethod
     def platform_name(self) -> str:
-        """Name of the platform, e.g. 'bluesky', 'linkedin', 'facebook'."""
+        """Name of the platform, e.g. 'bluesky', 'linkedin', 'facebook', 'pinterest', 'youtube'."""
         pass
 
     @abstractmethod
@@ -20,7 +20,8 @@ class BasePlatformAdapter(ABC):
         self,
         content: str,
         media_url: Optional[str] = None,
-        dry_run: bool = False
+        dry_run: bool = False,
+        **kwargs
     ) -> PlatformResult:
         """Publish text content and optional media to the platform, with optional dry_run mock mode."""
         pass

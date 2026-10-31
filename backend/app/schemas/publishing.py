@@ -19,6 +19,8 @@ class PublishRequest(BaseModel):
     dry_run: bool = Field(False, description="If True, performs validation and simulated publish without external dispatch")
     content: Optional[str] = None
     media_url: Optional[str] = None
+    title: Optional[str] = None
+    board_id: Optional[str] = None
 
 
 class PublishResponse(BaseModel):

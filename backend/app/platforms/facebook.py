@@ -47,7 +47,8 @@ class FacebookAdapter(BasePlatformAdapter):
         self,
         content: str,
         media_url: Optional[str] = None,
-        dry_run: bool = False
+        dry_run: bool = False,
+        **kwargs
     ) -> PlatformResult:
         # 1. Validation
         if len(content) > 63206:

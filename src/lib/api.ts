@@ -36,10 +36,13 @@ async function fetchWithAuth<T>(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   const mergedHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
     Accept: 'application/json',
     ...(headers as Record<string, string>),
   };
+
+  if (!(rest.body instanceof FormData) && !mergedHeaders['Content-Type']) {
+    mergedHeaders['Content-Type'] = 'application/json';
+  }
 
   if (token) {
     mergedHeaders['Authorization'] = `Bearer ${token}`;
@@ -223,12 +226,30 @@ export const api = {
   /**
    * Publish post to selected platforms through FastAPI backend
    */
+  /**
+   * Upload media file (image/video) to persistent public storage
+   */
+  async uploadMedia(file: File): Promise<{ url: string; filename: string; content_type: string; size: number; storage: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetchWithAuth('/api/v1/media/upload', {
+      method: 'POST',
+      body: formData,
+      timeoutMs: 60000,
+    });
+  },
+
+  /**
+   * Publish post to selected platforms through FastAPI backend
+   */
   async publishPost(
     postId: string,
     platforms: Platform[],
     publishNow: boolean = true,
     content?: string,
-    mediaUrl?: string
+    mediaUrl?: string,
+    title?: string,
+    boardId?: string
   ): Promise<PublishResult> {
     return fetchWithAuth('/api/v1/publishing/publish', {
       method: 'POST',
@@ -238,6 +259,8 @@ export const api = {
         publish_now: publishNow,
         content: content || undefined,
         media_url: mediaUrl || undefined,
+        title: title || undefined,
+        board_id: boardId || undefined,
       }),
     });
   },

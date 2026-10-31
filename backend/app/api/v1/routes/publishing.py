@@ -76,7 +76,13 @@ async def publish_post_endpoint(payload: PublishRequest):
         p_clean = platform.lower().strip()
         adapter = ADAPTERS.get(p_clean)
         if adapter:
-            result = await adapter.publish_post(content=content, media_url=media_url, dry_run=effective_dry_run)
+            result = await adapter.publish_post(
+                content=content,
+                media_url=media_url,
+                dry_run=effective_dry_run,
+                title=payload.title,
+                board_id=payload.board_id,
+            )
             results.append(result)
             if result.status == "published":
                 any_success = True

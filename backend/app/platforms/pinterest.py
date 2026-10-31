@@ -1,3 +1,4 @@
+import base64
 import datetime
 import logging
 from typing import Optional, List, Dict, Any
@@ -27,9 +28,63 @@ class PinterestAdapter(BasePlatformAdapter):
             return creds["access_token"], creds.get("account_id") or ""
         return "", ""
 
+    async def _refresh_access_token(self) -> Optional[str]:
+        """
+        Refreshes Pinterest OAuth access token using refresh_token and basic auth.
+        """
+        from app.services.credential_service import credential_service
+        creds = await credential_service.get_credentials("pinterest")
+        if not creds or not creds.get("refresh_token"):
+            logger.warning("No refresh token available to refresh Pinterest access token.")
+            return None
+
+        app_id = settings.PINTEREST_APP_ID.strip()
+        app_secret = settings.PINTEREST_APP_SECRET.strip()
+        if not app_id or not app_secret:
+            logger.error("Missing PINTEREST_APP_ID or PINTEREST_APP_SECRET for Pinterest token refresh.")
+            return None
+
+        refresh_token = creds["refresh_token"]
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{self.API_BASE_URL}/oauth/token",
+                    auth=(app_id, app_secret),
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    data={
+                        "grant_type": "refresh_token",
+                        "refresh_token": refresh_token,
+                    },
+                )
+                if resp.status_code == 200:
+                    token_data = resp.json()
+                    new_token = token_data.get("access_token")
+                    new_refresh = token_data.get("refresh_token") or refresh_token
+                    expires_in = token_data.get("expires_in", 2592000)
+                    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=expires_in)
+
+                    await credential_service.save_connection(
+                        platform="pinterest",
+                        handle=creds.get("handle") or creds.get("account_name") or "Pinterest Account",
+                        access_token=new_token,
+                        refresh_token=new_refresh,
+                        account_id=creds.get("account_id"),
+                        account_name=creds.get("account_name"),
+                        token_expires_at=expires_at,
+                        metadata=creds.get("metadata") or {},
+                    )
+                    logger.info("Successfully refreshed and persisted new Pinterest OAuth access token.")
+                    return new_token
+                else:
+                    logger.error(f"Failed to refresh Pinterest token (HTTP {resp.status_code}): {resp.text}")
+        except Exception as e:
+            logger.error(f"Error refreshing Pinterest access token: {e}")
+        return None
+
     async def validate_connection(self) -> bool:
         """
         Validates Pinterest connection by querying authenticated user account.
+        Auto-refreshes token if expired.
         """
         token, _ = await self._resolve_credentials()
         if not token:
@@ -41,7 +96,17 @@ class PinterestAdapter(BasePlatformAdapter):
                     f"{self.API_BASE_URL}/user_account",
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                return resp.status_code == 200
+                if resp.status_code == 200:
+                    return True
+                elif resp.status_code == 401:
+                    new_token = await self._refresh_access_token()
+                    if new_token:
+                        retry_resp = await client.get(
+                            f"{self.API_BASE_URL}/user_account",
+                            headers={"Authorization": f"Bearer {new_token}"}
+                        )
+                        return retry_resp.status_code == 200
+                return False
             except Exception as e:
                 logger.error(f"Pinterest connection validation failed: {e}")
                 return False
@@ -64,6 +129,17 @@ class PinterestAdapter(BasePlatformAdapter):
                     data = resp.json()
                     items = data.get("items", [])
                     return [{"id": b["id"], "name": b["name"]} for b in items]
+                elif resp.status_code == 401:
+                    new_token = await self._refresh_access_token()
+                    if new_token:
+                        retry_resp = await client.get(
+                            f"{self.API_BASE_URL}/boards",
+                            headers={"Authorization": f"Bearer {new_token}"}
+                        )
+                        if retry_resp.status_code == 200:
+                            data = retry_resp.json()
+                            items = data.get("items", [])
+                            return [{"id": b["id"], "name": b["name"]} for b in items]
             except Exception as e:
                 logger.error(f"Error fetching Pinterest boards: {e}")
         return []
@@ -109,8 +185,38 @@ class PinterestAdapter(BasePlatformAdapter):
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Pinterest Pins require an image or video URL. Please upload or provide a media URL.",
+                error_message="Pinterest Pins require an image or video URL. Please upload or provide an image.",
             )
+
+        # Resolve relative public URLs into fully qualified public HTTPS URLs
+        if media_url.startswith("/"):
+            media_url = f"https://ai-social-media-agent-phi.vercel.app{media_url}"
+
+        # Resilient handling of data: URLs by uploading to public Supabase Storage
+        if media_url.startswith("data:"):
+            try:
+                from app.api.v1.routes.media import _upload_to_supabase
+                header, encoded = media_url.split(",", 1)
+                mime = header.split(";")[0].replace("data:", "").strip() or "image/jpeg"
+                ext = "jpg" if "jpeg" in mime or "jpg" in mime else "png"
+                file_bytes = base64.b64decode(encoded)
+                supabase_url = _upload_to_supabase(file_bytes, f"pin_upload.{ext}", mime)
+                if supabase_url:
+                    logger.info(f"Auto-uploaded Pinterest data URL to Supabase: {supabase_url}")
+                    media_url = supabase_url
+                else:
+                    return PlatformResult(
+                        platform=self.platform_name,
+                        status="failed",
+                        error_message="Pinterest requires a publicly accessible image URL (http/https). Local browser file uploads cannot be fetched by Pinterest.",
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to auto-upload data URL for Pinterest: {e}")
+                return PlatformResult(
+                    platform=self.platform_name,
+                    status="failed",
+                    error_message="Pinterest requires a publicly accessible image URL (http/https).",
+                )
 
         # Determine destination board ID
         board_id = kwargs.get("board_id")
@@ -119,16 +225,15 @@ class PinterestAdapter(BasePlatformAdapter):
             if boards:
                 board_id = boards[0]["id"]
             else:
-                board_id = "default"
+                return PlatformResult(
+                    platform=self.platform_name,
+                    status="failed",
+                    error_message="No Pinterest boards found on this account. Please create at least one board on Pinterest before creating pins.",
+                )
 
         title = kwargs.get("title") or content[:100].strip()
         link = kwargs.get("destination_url") or kwargs.get("link")
 
-        # Resolve relative public URLs into fully qualified public HTTPS URLs
-        if media_url.startswith("/"):
-            media_url = f"https://ai-social-media-agent-phi.vercel.app{media_url}"
-
-        # Construct payload according to Pinterest v5 API
         payload = {
             "title": title,
             "description": content,
@@ -141,7 +246,7 @@ class PinterestAdapter(BasePlatformAdapter):
         if link:
             payload["link"] = link
 
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=25.0) as client:
             try:
                 resp = await client.post(
                     f"{self.API_BASE_URL}/pins",
@@ -151,6 +256,20 @@ class PinterestAdapter(BasePlatformAdapter):
                     },
                     json=payload,
                 )
+
+                if resp.status_code == 401:
+                    new_token = await self._refresh_access_token()
+                    if new_token:
+                        token = new_token
+                        resp = await client.post(
+                            f"{self.API_BASE_URL}/pins",
+                            headers={
+                                "Authorization": f"Bearer {token}",
+                                "Content-Type": "application/json",
+                            },
+                            json=payload,
+                        )
+
                 if resp.status_code in (200, 201):
                     data = resp.json()
                     pin_id = data.get("id", f"pin_{int(datetime.datetime.now().timestamp())}")
@@ -163,12 +282,18 @@ class PinterestAdapter(BasePlatformAdapter):
                         error_message=None,
                     )
                 else:
-                    err_text = resp.text
-                    logger.error(f"Pinterest Pin creation failed: {resp.status_code} - {err_text}")
+                    err_msg = f"Pinterest API Error (HTTP {resp.status_code})"
+                    try:
+                        err_json = resp.json()
+                        msg = err_json.get("message")
+                        if msg:
+                            err_msg = f"Pinterest: {msg}"
+                    except Exception:
+                        pass
                     return PlatformResult(
                         platform=self.platform_name,
                         status="failed",
-                        error_message=f"Pinterest API Error ({resp.status_code}): {err_text}",
+                        error_message=err_msg,
                     )
             except Exception as e:
                 logger.exception(f"Error publishing Pin to Pinterest: {e}")
@@ -180,4 +305,3 @@ class PinterestAdapter(BasePlatformAdapter):
 
 
 pinterest_adapter = PinterestAdapter()
-

@@ -52,6 +52,32 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   // Media preview state
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadedPublicUrl, setUploadedPublicUrl] = useState<string | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [pinterestBoards, setPinterestBoards] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedBoardId, setSelectedBoardId] = useState<string>('');
+  const [isLoadingBoards, setIsLoadingBoards] = useState(false);
+
+  // Fetch Pinterest boards when Pinterest is selected
+  useEffect(() => {
+    if (selectedPlatforms.includes('pinterest') && pinterestBoards.length === 0 && !isLoadingBoards) {
+      setIsLoadingBoards(true);
+      api.getPinterestBoards()
+        .then((res) => {
+          if (res?.boards && res.boards.length > 0) {
+            setPinterestBoards(res.boards);
+            if (!selectedBoardId) {
+              setSelectedBoardId(res.boards[0].id);
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not fetch Pinterest boards:', err);
+        })
+        .finally(() => setIsLoadingBoards(false));
+    }
+  }, [selectedPlatforms]);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -259,6 +285,9 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       return;
     }
 
+    setSelectedFile(file);
+    setUploadedPublicUrl(null);
+
     const reader = new FileReader();
     reader.onload = (event) => {
       if (event.target?.result) {
@@ -266,10 +295,27 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       }
     };
     reader.readAsDataURL(file);
+
+    // Asynchronously upload to backend persistent storage
+    setIsUploadingMedia(true);
+    api.uploadMedia(file)
+      .then((res) => {
+        if (res?.url) {
+          setUploadedPublicUrl(res.url);
+        }
+      })
+      .catch((err) => {
+        console.warn('Direct media upload notice:', err);
+      })
+      .finally(() => {
+        setIsUploadingMedia(false);
+      });
   };
 
   const handleRemoveMedia = () => {
     setMediaUrl(null);
+    setSelectedFile(null);
+    setUploadedPublicUrl(null);
     setUploadError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -331,6 +377,27 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       return;
     }
 
+    // Validation for platform specific media requirements
+    if (status === 'published') {
+      if (selectedPlatforms.includes('instagram') && !mediaUrl && !uploadedPublicUrl) {
+        alert('Instagram requires an image or video to publish a post. Please attach media under section 6.');
+        return;
+      }
+      if (selectedPlatforms.includes('youtube')) {
+        const isVideo = selectedFile
+          ? (selectedFile.type.startsWith('video/') || selectedFile.name.endsWith('.mp4') || selectedFile.name.endsWith('.webm'))
+          : (mediaUrl ? (mediaUrl.startsWith('data:video/') || mediaUrl.includes('.mp4') || mediaUrl.includes('.webm')) : false);
+        if (!isVideo) {
+          alert('YouTube requires a video file (.mp4 or .webm) to publish. Please upload a video under section 6.');
+          return;
+        }
+      }
+      if (selectedPlatforms.includes('pinterest') && !mediaUrl && !uploadedPublicUrl) {
+        alert('Pinterest Pins require an image or video. Please attach media under section 6.');
+        return;
+      }
+    }
+
     // === LIVE PUBLISH NOW ===
     setIsPublishing(true);
     setPublishResults(null);
@@ -344,13 +411,28 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         console.warn('Could not save post to backend, using local ID:', e);
       }
 
+      let effectiveMediaUrl = uploadedPublicUrl || mediaUrl || undefined;
+      if (selectedFile && !uploadedPublicUrl) {
+        try {
+          const upRes = await api.uploadMedia(selectedFile);
+          if (upRes?.url) {
+            effectiveMediaUrl = upRes.url;
+            setUploadedPublicUrl(upRes.url);
+          }
+        } catch (upErr) {
+          console.warn('Could not upload media to storage, falling back to local data URL:', upErr);
+        }
+      }
+
       // Step 2: Publish to selected platforms via FastAPI
       const publishRes = await api.publishPost(
         savedPost.id,
         selectedPlatforms,
         true,
         savedPost.content || postBody,
-        savedPost.mediaUrl || mediaUrl || undefined
+        effectiveMediaUrl,
+        topic.trim() || undefined,
+        selectedBoardId || undefined
       );
 
       // Step 3: Show results
@@ -612,12 +694,47 @@ export const CreatePost: React.FC<CreatePostProps> = ({
               );
             })}
           </div>
+          {selectedPlatforms.includes('pinterest') && (
+            <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '0.5rem', border: '1px solid rgba(51, 65, 85, 0.6)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', fontSize: '0.8rem' }}>
+                <span style={{ fontWeight: 600, color: '#e2e8f0' }}>Pinterest Destination Board:</span>
+                {isLoadingBoards && <span style={{ color: '#94a3b8' }}>Loading boards...</span>}
+              </div>
+              {pinterestBoards.length > 0 ? (
+                <select
+                  value={selectedBoardId}
+                  onChange={(e) => setSelectedBoardId(e.target.value)}
+                  style={{ width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: '0.375rem', padding: '0.35rem 0.6rem', color: '#f8fafc', fontSize: '0.8rem' }}
+                >
+                  {pinterestBoards.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
+                  {isLoadingBoards ? 'Fetching Pinterest boards...' : 'No Pinterest boards found. OmniPulse will use your default board if available.'}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="create-post-section">
-          <label className="create-post-label create-post-media-label">
-            6. Media (Optional)
-          </label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <label className="create-post-label create-post-media-label" style={{ marginBottom: 0 }}>
+              6. Media (Optional)
+            </label>
+            {isUploadingMedia && (
+              <span style={{ fontSize: '0.75rem', color: '#38bdf8' }}>
+                Uploading to cloud storage...
+              </span>
+            )}
+            {!isUploadingMedia && uploadedPublicUrl && (
+              <span style={{ fontSize: '0.75rem', color: '#34d399' }}>
+                ✓ Cloud storage ready
+              </span>
+            )}
+          </div>
 
           {uploadError && (
             <div className="create-post-error-banner">

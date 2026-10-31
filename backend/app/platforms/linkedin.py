@@ -1,3 +1,4 @@
+import base64
 import datetime
 import logging
 from typing import Optional
@@ -40,11 +41,86 @@ class LinkedInAdapter(BasePlatformAdapter):
                 logger.error(f"LinkedIn connection validation failed: {e}")
                 return False
 
+    async def _upload_image_asset(self, client: httpx.AsyncClient, token: str, author_urn: str, media_url: str) -> Optional[str]:
+        """
+        Uploads image to LinkedIn Assets API and returns digitalmediaAsset URN.
+        """
+        try:
+            # 1. Resolve image bytes
+            image_bytes: Optional[bytes] = None
+            if media_url.startswith("data:"):
+                header, encoded = media_url.split(",", 1)
+                image_bytes = base64.b64decode(encoded)
+            elif media_url.startswith("http://") or media_url.startswith("https://"):
+                dl_resp = await client.get(media_url)
+                if dl_resp.status_code == 200:
+                    image_bytes = dl_resp.content
+
+            if not image_bytes:
+                return None
+
+            # 2. Register upload request
+            register_payload = {
+                "registerUploadRequest": {
+                    "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                    "owner": author_urn,
+                    "serviceRelationships": [
+                        {
+                            "relationshipType": "OWNER",
+                            "identifier": "urn:li:userGeneratedContent"
+                        }
+                    ]
+                }
+            }
+
+            reg_resp = await client.post(
+                f"{self.BASE_URL}/assets?action=registerUpload",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                    "Content-Type": "application/json",
+                },
+                json=register_payload,
+            )
+
+            if reg_resp.status_code not in (200, 201):
+                logger.warning(f"LinkedIn asset registerUpload failed (HTTP {reg_resp.status_code}): {reg_resp.text}")
+                return None
+
+            reg_data = reg_resp.json().get("value", {})
+            asset_urn = reg_data.get("asset")
+            upload_mech = reg_data.get("uploadMechanism", {})
+            http_mech = upload_mech.get("com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {})
+            upload_url = http_mech.get("uploadUrl")
+
+            if not asset_urn or not upload_url:
+                return None
+
+            # 3. Binary upload to upload_url
+            upload_resp = await client.put(
+                upload_url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                },
+                content=image_bytes,
+            )
+
+            if upload_resp.status_code in (200, 201):
+                logger.info(f"Successfully uploaded image asset to LinkedIn: {asset_urn}")
+                return asset_urn
+            else:
+                logger.warning(f"LinkedIn binary image upload failed: HTTP {upload_resp.status_code}")
+                return None
+        except Exception as e:
+            logger.warning(f"Error uploading LinkedIn image asset: {e}")
+            return None
+
     async def publish_post(
         self,
         content: str,
         media_url: Optional[str] = None,
-        dry_run: bool = False
+        dry_run: bool = False,
+        **kwargs
     ) -> PlatformResult:
         # 1. Validation
         if len(content) > 3000:
@@ -73,7 +149,7 @@ class LinkedInAdapter(BasePlatformAdapter):
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Missing LINKEDIN_ACCESS_TOKEN. Please connect your LinkedIn account.",
+                error_message="Missing LINKEDIN_ACCESS_TOKEN. Please connect your LinkedIn account in Platforms.",
             )
 
         # Auto-resolve author URN if missing urn:li prefix
@@ -95,27 +171,51 @@ class LinkedInAdapter(BasePlatformAdapter):
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message="Missing valid LINKEDIN_AUTHOR_URN (e.g. urn:li:person:... or urn:li:organization:...) in backend/.env",
+                error_message="Missing valid LinkedIn author URN (e.g. urn:li:person:... or urn:li:organization:...). Please reconnect LinkedIn in Platforms.",
             )
 
-        payload = {
-            "author": author_urn,
-            "lifecycleState": "PUBLISHED",
-            "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
+        # Resolve relative public URLs into fully qualified public HTTPS URLs
+        if media_url and media_url.startswith("/"):
+            media_url = f"https://ai-social-media-agent-phi.vercel.app{media_url}"
+
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            try:
+                # Check for image asset upload
+                share_category = "NONE"
+                media_list = []
+                if media_url:
+                    asset_urn = await self._upload_image_asset(client, token, author_urn, media_url)
+                    if asset_urn:
+                        share_category = "IMAGE"
+                        media_list = [
+                            {
+                                "status": "READY",
+                                "description": {"text": content[:100].strip() or "OmniPulse Post"},
+                                "media": asset_urn,
+                                "title": {"text": "OmniPulse Image"}
+                            }
+                        ]
+
+                share_content = {
                     "shareCommentary": {
                         "text": content
                     },
-                    "shareMediaCategory": "NONE"
+                    "shareMediaCategory": share_category
                 }
-            },
-            "visibility": {
-                "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
-            }
-        }
+                if media_list:
+                    share_content["media"] = media_list
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
+                payload = {
+                    "author": author_urn,
+                    "lifecycleState": "PUBLISHED",
+                    "specificContent": {
+                        "com.linkedin.ugc.ShareContent": share_content
+                    },
+                    "visibility": {
+                        "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
+                    }
+                }
+
                 resp = await client.post(
                     f"{self.BASE_URL}/ugcPosts",
                     headers={
@@ -140,7 +240,7 @@ class LinkedInAdapter(BasePlatformAdapter):
                     return PlatformResult(
                         platform=self.platform_name,
                         status="failed",
-                        error_message="LinkedIn access token expired or invalid (HTTP 401). Please update LINKEDIN_ACCESS_TOKEN.",
+                        error_message="LinkedIn access token expired or invalid (HTTP 401). Please reconnect LinkedIn in Platforms.",
                     )
                 elif resp.status_code == 403:
                     return PlatformResult(

@@ -54,7 +54,15 @@ class CredentialService:
         now_str = self._iso_now()
 
         enc_access_token = encryption_service.encrypt(access_token) if access_token else ""
-        enc_refresh_token = encryption_service.encrypt(refresh_token) if refresh_token else None
+        if refresh_token:
+            enc_refresh_token = encryption_service.encrypt(refresh_token)
+        else:
+            # Preserve existing refresh token if already stored
+            existing_cred = await self.get_credentials(p_clean, user_id=uid)
+            if existing_cred and existing_cred.get("refresh_token"):
+                enc_refresh_token = encryption_service.encrypt(existing_cred["refresh_token"])
+            else:
+                enc_refresh_token = None
         expires_str = token_expires_at.isoformat() if token_expires_at else None
 
         record = {

@@ -373,27 +373,22 @@ def test_six_platform_registry_presence_and_coming_soon_status():
     assert "youtube" in conn_map
 
     pinterest = conn_map["pinterest"]
-    assert pinterest["status"] == "coming_soon"
-    assert pinterest["handle"] == "Coming Soon"
-    assert pinterest.get("is_coming_soon") is True
-    assert pinterest.get("is_configured") is False
+    assert pinterest["status"] in ("disconnected", "connected", "error")
+    assert pinterest.get("is_coming_soon") is False
 
     youtube = conn_map["youtube"]
-    assert youtube["status"] == "coming_soon"
-    assert youtube["handle"] == "Coming Soon"
-    assert youtube.get("is_coming_soon") is True
-    assert youtube.get("is_configured") is False
+    assert youtube["status"] in ("disconnected", "connected", "error")
+    assert youtube.get("is_coming_soon") is False
 
 
 def test_coming_soon_platforms_cannot_falsely_verify():
-    """Verify that unbuilt platforms cannot falsely report valid or connected status."""
+    """Verify that unauthenticated platforms cannot falsely report valid or connected status."""
     for p in ["pinterest", "youtube"]:
         verify_res = client.post(f"/api/v1/connections/{p}/verify")
         assert verify_res.status_code == 200
         data = verify_res.json()
         assert data["is_valid"] is False
-        assert data["status"] == "coming_soon"
-        assert "Coming soon" in data["message"]
+        assert data["status"] in ("disconnected", "error")
 
 
 def test_coming_soon_platforms_cannot_initiate_meta_oauth():
