@@ -29,10 +29,24 @@ from app.schemas.connection import (
     OAuthAuthorizeResponse,
     CreatePinterestBoardRequest,
 )
+from app.api.v1.routes.posts import extract_user_id
+from app.core.logging_redactor import redact_sensitive_str, redact_sensitive_dict
 from app.services.credential_service import credential_service
 
 logger = logging.getLogger("omnipulse.routes.connections")
 router = APIRouter(prefix="/connections", tags=["Connections"])
+
+
+def _extract_request_uid(request: Optional[Request]) -> str:
+    """Extracts authenticated user ID from Authorization header or resolves default."""
+    if not request:
+        return extract_user_id()
+    auth_header = request.headers.get("authorization")
+    token = None
+    if auth_header:
+        parts = auth_header.split(" ", 1)
+        token = parts[1] if len(parts) > 1 else parts[0]
+    return extract_user_id(token)
 
 
 def _sanitize_origin(origin: Optional[str]) -> str:
@@ -161,11 +175,12 @@ def _render_popup_html(
 # =============================================================================
 
 @router.get("", response_model=ConnectionListResponse)
-async def list_connections():
+async def list_connections(request: Request):
     """
     Returns platform connection statuses safely without ever exposing tokens or secrets.
     """
-    connections_data = await credential_service.list_all_connections()
+    uid = _extract_request_uid(request)
+    connections_data = await credential_service.list_all_connections(user_id=uid)
     return ConnectionListResponse(
         connections=[ConnectionItem(**c) for c in connections_data]
     )
@@ -207,6 +222,9 @@ async def initiate_meta_authorization(payload: MetaAuthorizeRequest, request: Re
     # Determine frontend origin for popup postMessage
     origin = _sanitize_origin(payload.redirect_origin or request.headers.get("origin"))
 
+    # Extract user ID to bind state to specific user
+    uid = _extract_request_uid(request)
+
     # Generate secure random state token
     state_id = f"meta_{secrets.token_urlsafe(24)}"
     await credential_service.save_oauth_state(
@@ -214,6 +232,7 @@ async def initiate_meta_authorization(payload: MetaAuthorizeRequest, request: Re
         platform=platform,
         redirect_origin=origin,
         expires_in_seconds=600,  # 10 minutes TTL
+        user_id=uid,
     )
 
     # Scopes
@@ -276,7 +295,7 @@ async def handle_meta_oauth_callback(
     # 2. Validate and consume OAuth state
     state_data = await credential_service.verify_and_consume_oauth_state(state)
     if not state_data:
-        logger.warning(f"Rejected invalid or expired Meta OAuth state: {state}")
+        logger.warning("Rejected invalid or expired Meta OAuth state session.")
         return _render_popup_html(
             success=False,
             platform="meta",
@@ -286,6 +305,7 @@ async def handle_meta_oauth_callback(
 
     platform = state_data.get("platform", "facebook")
     target_origin = state_data.get("redirect_origin") or origin
+    state_uid = (state_data.get("user_id") if state_data else None) or _extract_request_uid(request)
 
     app_id = settings.META_APP_ID.strip()
     app_secret = settings.META_APP_SECRET.strip()
@@ -323,7 +343,7 @@ async def handle_meta_oauth_callback(
 
             if token_resp.status_code != 200 or "access_token" not in token_json:
                 detail = token_json.get("error", {}).get("message", "Token exchange failed with Meta.")
-                logger.error(f"Meta token exchange error: {token_json}")
+                logger.error(f"Meta token exchange error: {redact_sensitive_dict(token_json)}")
                 return _render_popup_html(
                     success=False,
                     platform=platform,
@@ -380,6 +400,7 @@ async def handle_meta_oauth_callback(
                     account_name=page_name,
                     metadata={"page_id": page_id, "page_name": page_name, "category": primary_page.get("category")},
                     scopes="pages_show_list,pages_read_engagement,pages_manage_posts",
+                    user_id=state_uid,
                 )
 
                 # Connection verification
@@ -432,6 +453,7 @@ async def handle_meta_oauth_callback(
                         "facebook_page_name": target_page.get("name"),
                     },
                     scopes="pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish",
+                    user_id=state_uid,
                 )
 
                 # Connection verification
@@ -447,12 +469,13 @@ async def handle_meta_oauth_callback(
                 )
 
     except Exception as e:
-        logger.error(f"Error during Meta OAuth callback processing: {e}", exc_info=True)
+        safe_err = redact_sensitive_str(str(e))
+        logger.error(f"Error during Meta OAuth callback processing: {safe_err}", exc_info=True)
         return _render_popup_html(
             success=False,
-            platform=platform,
-            target_origin=target_origin,
-            error_message=f"Internal authentication error: {str(e)}",
+            platform=platform if "platform" in locals() else "meta",
+            target_origin=target_origin if "target_origin" in locals() else origin,
+            error_message=f"Authentication or persistence failed: {safe_err}",
         )
 
 
@@ -477,12 +500,14 @@ async def initiate_pinterest_oauth(request: Request, payload: Optional[OAuthAuth
         callback_uri = f"{base_url}/api/v1/connections/pinterest/callback"
 
     origin = _sanitize_origin((payload.redirect_origin if payload else None) or request.headers.get("origin"))
+    uid = _extract_request_uid(request)
 
     state_id = f"pin_{secrets.token_urlsafe(24)}"
     await credential_service.save_oauth_state(
         state_id=state_id,
         platform="pinterest",
         redirect_origin=origin,
+        user_id=uid,
     )
 
     scopes = "boards:read,boards:write,pins:read,pins:write,user_accounts:read"
@@ -537,6 +562,7 @@ async def pinterest_oauth_callback(
         )
 
     target_origin = state_data.get("redirect_origin") or target_origin
+    state_uid = (state_data.get("user_id") if state_data else None) or _extract_request_uid(request)
 
     app_id = settings.PINTEREST_APP_ID.strip()
     app_secret = settings.PINTEREST_APP_SECRET.strip()
@@ -605,6 +631,7 @@ async def pinterest_oauth_callback(
                 account_name=handle,
                 handle=handle,
                 metadata={"token_type": token_data.get("token_type", "bearer")},
+                user_id=state_uid,
             )
 
             return _render_popup_html(
@@ -643,12 +670,14 @@ async def initiate_youtube_oauth(request: Request, payload: Optional[OAuthAuthor
         callback_uri = f"{base_url}/api/v1/connections/youtube/callback"
 
     origin = _sanitize_origin((payload.redirect_origin if payload else None) or request.headers.get("origin"))
+    uid = _extract_request_uid(request)
 
     state_id = f"yt_{secrets.token_urlsafe(24)}"
     await credential_service.save_oauth_state(
         state_id=state_id,
         platform="youtube",
         redirect_origin=origin,
+        user_id=uid,
     )
 
     scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
@@ -705,6 +734,7 @@ async def youtube_oauth_callback(
         )
 
     target_origin = state_data.get("redirect_origin") or target_origin
+    state_uid = (state_data.get("user_id") if state_data else None) or _extract_request_uid(request)
 
     client_id = settings.GOOGLE_CLIENT_ID.strip()
     client_secret = settings.GOOGLE_CLIENT_SECRET.strip()
@@ -772,6 +802,7 @@ async def youtube_oauth_callback(
                 account_name=channel_title,
                 handle=handle,
                 metadata={"token_type": "Bearer"},
+                user_id=state_uid,
             )
 
             return _render_popup_html(
@@ -822,13 +853,14 @@ async def create_pinterest_board_endpoint(payload: CreatePinterestBoardRequest):
 # =============================================================================
 
 @router.post("/bluesky/connect", response_model=ConnectionVerifyResponse)
-async def connect_bluesky(payload: BlueskyConnectRequest):
+async def connect_bluesky(payload: BlueskyConnectRequest, request: Request):
     """
     Connects Bluesky using an App Password. Validates credentials with AT Protocol,
     encrypts the password, and durably persists the connection.
     """
     handle = payload.handle.strip().lstrip("@")
     app_password = payload.app_password.strip()
+    uid = _extract_request_uid(request)
 
     if not handle or not app_password:
         raise HTTPException(
@@ -863,6 +895,7 @@ async def connect_bluesky(payload: BlueskyConnectRequest):
                 account_id=did,
                 account_name=user_handle,
                 metadata={"did": did},
+                user_id=uid,
             )
 
             # Invalidate session cache in adapter so new credentials take effect
@@ -886,13 +919,14 @@ async def connect_bluesky(payload: BlueskyConnectRequest):
 
 
 @router.post("/linkedin/connect", response_model=ConnectionVerifyResponse)
-async def connect_linkedin(payload: LinkedInConnectRequest):
+async def connect_linkedin(payload: LinkedInConnectRequest, request: Request):
     """
     Connects LinkedIn using an OAuth 2.0 Bearer access token.
     Validates token with /v2/userinfo, extracts author URN, encrypts, and persists.
     """
     token = payload.access_token.strip()
     author_urn = (payload.author_urn or "").strip()
+    uid = _extract_request_uid(request)
 
     if not token:
         raise HTTPException(
@@ -926,6 +960,7 @@ async def connect_linkedin(payload: LinkedInConnectRequest):
                 account_id=resolved_urn,
                 account_name=name,
                 metadata={"sub": sub, "author_urn": resolved_urn},
+                user_id=uid,
             )
 
             return ConnectionVerifyResponse(
@@ -950,16 +985,20 @@ async def connect_linkedin(payload: LinkedInConnectRequest):
 # =============================================================================
 
 @router.post("/verify", response_model=ConnectionVerifyResponse)
-async def verify_connection_body(payload: ConnectionVerifyRequest):
+async def verify_connection_body(payload: ConnectionVerifyRequest, request: Request):
     """
     Verifies a connection using request body parameters.
     Supports backward compatibility with POST /api/v1/connections/verify.
     """
-    return await verify_platform_connection(payload.platform, payload)
+    return await verify_platform_connection(payload.platform, request=request, payload=payload)
 
 
 @router.post("/{platform}/verify", response_model=ConnectionVerifyResponse)
-async def verify_platform_connection(platform: str, payload: Optional[ConnectionVerifyRequest] = None):
+async def verify_platform_connection(
+    platform: str,
+    request: Request,
+    payload: Optional[ConnectionVerifyRequest] = None,
+):
     """
     Verifies an existing connection using stored credentials.
     Distinguishes connected, expired, reauth_required, temp_unavailable, and disconnected.
@@ -983,7 +1022,8 @@ async def verify_platform_connection(platform: str, payload: Optional[Connection
             message=f"Platform '{p_clean}' is not currently supported.",
         )
 
-    conn = credential_service.get_safe_connection_item(p_clean)
+    uid = _extract_request_uid(request)
+    conn = credential_service.get_safe_connection_item(p_clean, user_id=uid)
     if not conn.get("is_configured"):
         return ConnectionVerifyResponse(
             platform=p_clean,
@@ -1023,7 +1063,7 @@ async def verify_platform_connection(platform: str, payload: Optional[Connection
             reason = "Verification rejected by provider"
             message = f"{conn.get('platform_name', p_clean.capitalize())} authorization required or token invalid. Please reconnect."
 
-    await credential_service.update_connection_status(p_clean, status_val, reason=reason)
+    await credential_service.update_connection_status(p_clean, status_val, user_id=uid, reason=reason)
 
     return ConnectionVerifyResponse(
         platform=p_clean,
@@ -1036,12 +1076,13 @@ async def verify_platform_connection(platform: str, payload: Optional[Connection
 
 
 @router.delete("/{platform}", response_model=ConnectionDisconnectResponse)
-async def disconnect_platform(platform: str):
+async def disconnect_platform(platform: str, request: Request):
     """
     Disconnects a social media channel, deleting stored encrypted credentials.
     """
     p_clean = platform.lower().strip()
-    await credential_service.delete_connection(p_clean)
+    uid = _extract_request_uid(request)
+    await credential_service.delete_connection(p_clean, user_id=uid)
 
     # Invalidate cached session if Bluesky
     if p_clean == "bluesky":
@@ -1056,8 +1097,8 @@ async def disconnect_platform(platform: str):
 
 
 @router.post("/{platform}/refresh", response_model=ConnectionVerifyResponse)
-async def refresh_platform_connection(platform: str):
+async def refresh_platform_connection(platform: str, request: Request):
     """
     Refreshes credentials or re-verifies connection health for a platform.
     """
-    return await verify_platform_connection(platform)
+    return await verify_platform_connection(platform, request=request)

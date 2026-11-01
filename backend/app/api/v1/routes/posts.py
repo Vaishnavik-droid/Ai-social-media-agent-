@@ -25,6 +25,30 @@ def to_uuid(val: str) -> str:
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, str(val)))
 
 
+_DEFAULT_USER_ID: Optional[str] = None
+
+
+def get_default_user_id() -> str:
+    """
+    Dynamically resolves a valid user ID from public.profiles.
+    Defaults to the confirmed single-user account (vaishnavi) in public.profiles.
+    """
+    global _DEFAULT_USER_ID
+    if _DEFAULT_USER_ID:
+        return _DEFAULT_USER_ID
+    client = _get_supabase_client()
+    if client:
+        try:
+            res = client.table("profiles").select("id").limit(1).execute()
+            if res.data and len(res.data) > 0:
+                _DEFAULT_USER_ID = str(res.data[0]["id"])
+                return _DEFAULT_USER_ID
+        except Exception:
+            pass
+    # Authoritative single-user ID for vaishnavi (confirmed in auth.users and public.profiles)
+    return "8940f3fd-a4e8-4fcf-95dd-ef112a691d37"
+
+
 def extract_user_id(token: Optional[str] = None) -> str:
     """Extracts user ID from Supabase JWT or falls back to primary account."""
     if token:
@@ -39,7 +63,7 @@ def extract_user_id(token: Optional[str] = None) -> str:
                 return sub
         except Exception:
             pass
-    return "722cd994-8fbd-422d-afec-2f4111fb099d"
+    return get_default_user_id()
 
 
 def _get_supabase_client(token: Optional[str] = None):

@@ -16,11 +16,15 @@ from app.api.v1.routes.scheduling import router as scheduling_router
 from app.api.v1.routes.media import router as media_router
 from app.api.v1.routes.auth import router as auth_router
 from app.services.scheduling_service import scheduling_service
+from app.core.logging_redactor import SensitiveDataFilter
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+for handler in logging.root.handlers:
+    handler.addFilter(SensitiveDataFilter())
+
 logger = logging.getLogger("omnipulse.backend")
 
 
