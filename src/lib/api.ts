@@ -140,6 +140,7 @@ export function normalizePost(p: any): SocialPost {
     tone: p.tone || 'Professional',
     contentType: p.contentType || p.content_type || 'General Post',
     language: p.language || 'English',
+    youtubePostType: p.youtubePostType || p.youtube_post_type || undefined,
   };
 }
 
@@ -249,7 +250,8 @@ export const api = {
     content?: string,
     mediaUrl?: string,
     title?: string,
-    boardId?: string
+    boardId?: string,
+    youtubePostType?: 'short' | 'long_form'
   ): Promise<PublishResult> {
     return fetchWithAuth('/api/v1/publishing/publish', {
       method: 'POST',
@@ -261,6 +263,7 @@ export const api = {
         media_url: mediaUrl || undefined,
         title: title || undefined,
         board_id: boardId || undefined,
+        youtube_post_type: youtubePostType || undefined,
       }),
       timeoutMs: 45000,
     });

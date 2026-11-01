@@ -30,6 +30,7 @@ interface CreatePostProps {
   preferences?: UserPreferences;
   onPostCreated: (post: SocialPost) => void;
   onNavigate: (page: any) => void;
+  initialPost?: SocialPost;
 }
 
 export const CreatePost: React.FC<CreatePostProps> = ({
@@ -37,6 +38,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   preferences,
   onPostCreated,
   onNavigate,
+  initialPost,
 }) => {
   const [topic, setTopic] = useState('');
   const [contentType, setContentType] = useState('General Post');
@@ -48,6 +50,9 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     'facebook',
   ]);
   const [activePreviewTab, setActivePreviewTab] = useState<Platform>('linkedin');
+  const [youtubePostType, setYoutubePostType] = useState<'short' | 'long_form' | ''>(
+    initialPost?.youtubePostType || ''
+  );
 
   // Media preview state
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
@@ -79,6 +84,33 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     } finally {
       setIsCreatingBoard(false);
     }
+  };
+
+  useEffect(() => {
+    if (initialPost?.youtubePostType) {
+      setYoutubePostType(initialPost.youtubePostType);
+    }
+  }, [initialPost]);
+
+  const getVideoMetadata = (file: File): Promise<{ duration: number; width: number; height: number }> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      const objectUrl = URL.createObjectURL(file);
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve({
+          duration: video.duration,
+          width: video.videoWidth,
+          height: video.videoHeight,
+        });
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Failed to load video metadata'));
+      };
+      video.src = objectUrl;
+    });
   };
 
   // Fetch Pinterest boards when Pinterest is selected
@@ -382,6 +414,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       tone,
       contentType,
       language,
+      youtubePostType: selectedPlatforms.includes('youtube') && youtubePostType ? youtubePostType : undefined,
     };
 
     if (status === 'draft') {
@@ -406,12 +439,48 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         return;
       }
       if (selectedPlatforms.includes('youtube')) {
+        if (!youtubePostType) {
+          alert('Please select a YouTube Content Type (YouTube Short or Long-form Content) before publishing.');
+          return;
+        }
+
         const isVideo = selectedFile
           ? (selectedFile.type.startsWith('video/') || selectedFile.name.endsWith('.mp4') || selectedFile.name.endsWith('.webm'))
           : (mediaUrl ? (mediaUrl.startsWith('data:video/') || mediaUrl.includes('.mp4') || mediaUrl.includes('.webm')) : false);
         if (!isVideo) {
           alert('YouTube requires a video file (.mp4 or .webm) to publish. Please upload a video under section 6.');
           return;
+        }
+
+        if (youtubePostType === 'short' && selectedFile) {
+          try {
+            const dimensions = await getVideoMetadata(selectedFile);
+            if (dimensions.duration > 180) {
+              const minutes = Math.floor(dimensions.duration / 60);
+              const seconds = Math.round(dimensions.duration % 60);
+              const proceed = confirm(
+                `YouTube Shorts must be 3 minutes or less. Your video is ${minutes}m ${seconds}s.\n\n` +
+                `Would you like to switch to Long-form Content instead? Click OK to switch to Long-form Content, or Cancel to upload a different video.`
+              );
+              if (proceed) {
+                setYoutubePostType('long_form');
+              } else {
+                return;
+              }
+            } else if (dimensions.width > dimensions.height) {
+              const proceed = confirm(
+                `YouTube Shorts require a vertical (9:16) or square (1:1) aspect ratio. Your video is widescreen (${dimensions.width}x${dimensions.height}).\n\n` +
+                `Would you like to switch to Long-form Content instead? Click OK to switch to Long-form Content, or Cancel to upload a different video.`
+              );
+              if (proceed) {
+                setYoutubePostType('long_form');
+              } else {
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('Could not read video metadata in browser:', e);
+          }
         }
       }
       if (selectedPlatforms.includes('pinterest') && !mediaUrl && !uploadedPublicUrl) {
@@ -454,7 +523,8 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         savedPost.content || postBody,
         effectiveMediaUrl,
         topic.trim() || undefined,
-        selectedBoardId || undefined
+        selectedBoardId || undefined,
+        selectedPlatforms.includes('youtube') && youtubePostType ? youtubePostType : undefined
       );
 
       // Step 3: Show results
@@ -763,6 +833,57 @@ export const CreatePost: React.FC<CreatePostProps> = ({
                 >
                   {isCreatingBoard ? 'Creating...' : '+ New Board'}
                 </button>
+              </div>
+            </div>
+          )}
+          {selectedPlatforms.includes('youtube') && (
+            <div style={{ marginTop: '0.75rem' }}>
+              <div className="create-post-field">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                  <label className="create-post-label" style={{ marginBottom: 0 }}>
+                    YouTube Content Type
+                  </label>
+                  {!youtubePostType && (
+                    <span style={{ fontSize: '0.75rem', color: '#f87171', fontWeight: 500 }}>
+                      * Selection required
+                    </span>
+                  )}
+                </div>
+                <div className="create-post-select-shell">
+                  <div className="create-post-select-display" aria-hidden="true">
+                    <span className="create-post-select-icon">
+                      {youtubePostType === 'short' ? '⚡' : youtubePostType === 'long_form' ? '🎬' : '▶️'}
+                    </span>
+                    <span
+                      className="create-post-select-text"
+                      style={{ color: youtubePostType ? '#111827' : '#94a3b8' }}
+                    >
+                      {youtubePostType === 'short'
+                        ? 'YouTube Short (Use this option for vertical or square videos up to 3 minutes)'
+                        : youtubePostType === 'long_form'
+                        ? 'Long-form Content (Use this option for regular YouTube videos longer than 3 minutes)'
+                        : 'Select YouTube Content Type...'}
+                    </span>
+                    <span className="create-post-select-arrow">
+                      <ChevronDown size={14} strokeWidth={2} />
+                    </span>
+                  </div>
+                  <select
+                    value={youtubePostType}
+                    onChange={(e) => setYoutubePostType(e.target.value as 'short' | 'long_form')}
+                    className="create-post-select"
+                  >
+                    <option value="" disabled>
+                      Select YouTube Content Type...
+                    </option>
+                    <option value="short">
+                      YouTube Short (Use this option for vertical or square videos up to 3 minutes)
+                    </option>
+                    <option value="long_form">
+                      Long-form Content (Use this option for regular YouTube videos longer than 3 minutes)
+                    </option>
+                  </select>
+                </div>
               </div>
             </div>
           )}

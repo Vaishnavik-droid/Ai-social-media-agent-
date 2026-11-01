@@ -131,6 +131,30 @@ class YouTubeAdapter(BasePlatformAdapter):
                 error_message=f"Video description exceeds YouTube limit of 5,000 characters (current: {len(content)}).",
             )
 
+        youtube_post_type = kwargs.get("youtube_post_type") or "short"
+        if youtube_post_type not in ("short", "long_form"):
+            return PlatformResult(
+                platform=self.platform_name,
+                status="failed",
+                error_message=f"Unsupported YouTube post type: '{youtube_post_type}'. Supported values are 'short' or 'long_form'.",
+            )
+
+        # YouTube strictly requires a video file or video URL
+        if not media_url:
+            return PlatformResult(
+                platform=self.platform_name,
+                status="failed",
+                error_message="YouTube publishing requires a video file (.mp4, .webm). Text-only and image-only uploads are not supported by YouTube.",
+            )
+
+        lower_media = media_url.lower()
+        if any(lower_media.startswith(p) for p in ("data:image/",)) or any(lower_media.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp")):
+            return PlatformResult(
+                platform=self.platform_name,
+                status="failed",
+                error_message="YouTube publishing requires a video file (.mp4, .webm). Static images are not supported by YouTube.",
+            )
+
         # 2. Dry-Run / Mock Publishing Mode
         if dry_run:
             simulated_id = f"mock_yt_{int(datetime.datetime.now().timestamp())}"
@@ -152,19 +176,13 @@ class YouTubeAdapter(BasePlatformAdapter):
                 error_message="Missing YouTube credentials. Please connect your YouTube Channel in Platforms.",
             )
 
-        # YouTube strictly requires a video file or video URL
-        if not media_url:
-            return PlatformResult(
-                platform=self.platform_name,
-                status="failed",
-                error_message="YouTube publishing requires a video file (.mp4, .webm). Text-only and image-only uploads are not supported by YouTube.",
-            )
-
         lines = [line.strip() for line in content.split("\n") if line.strip()]
         title = kwargs.get("title") or (lines[0][:100] if lines else "New Video Upload")
         description = content
         privacy_status = kwargs.get("privacy_status") or "public"
-        tags = kwargs.get("tags") or ["OmniPulse", "AI"]
+        tags = list(kwargs.get("tags") or ["OmniPulse", "AI"])
+        if youtube_post_type == "short" and "Shorts" not in tags:
+            tags.append("Shorts")
 
         metadata = {
             "snippet": {

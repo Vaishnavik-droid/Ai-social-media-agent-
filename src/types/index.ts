@@ -26,6 +26,7 @@ export interface SocialPost {
   tone?: string;
   contentType?: string;
   language?: string;
+  youtubePostType?: 'short' | 'long_form';
 }
 
 export interface ConnectedPlatform {

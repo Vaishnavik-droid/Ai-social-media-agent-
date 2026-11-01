@@ -83,34 +83,24 @@ async def publish_post_endpoint(payload: PublishRequest):
 
     global_dry_run = payload.dry_run or (settings.PUBLISHING_MODE.lower() == "mock")
 
-# ------------------------------------------------------------------
-    # 0️⃣  Post‑type validation & platform filtering
-    # ------------------------------------------------------------------
-    # Normalise platform list
-    requested_platforms = [p.lower().strip() for p in payload.platforms]
-    post_type = getattr(payload, "post_type", "community")
+    # 2. Validate YouTube post type if provided or if YouTube is targeted
+    clean_platforms = [p.lower().strip() for p in payload.platforms]
 
-    if post_type == "community":
-        # Community posts are text‑only – exclude YouTube (video‑only)
-        allowed_platforms = [p for p in requested_platforms if p != "youtube"]
-        if "youtube" in requested_platforms:
-            logger.warning(
-                "Community post request included YouTube – it will be ignored."
-            )
-    elif post_type == "youtube_short":
-        # Shorts are video‑only – only allow YouTube
-        allowed_platforms = ["youtube"] if "youtube" in requested_platforms else []
-        if not allowed_platforms:
+    if payload.youtube_post_type is not None and payload.youtube_post_type not in ("short", "long_form"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported youtube_post_type: '{payload.youtube_post_type}'. Supported values are 'short' or 'long_form'.",
+        )
+
+    if "youtube" in clean_platforms:
+        if not payload.youtube_post_type:
             raise HTTPException(
                 status_code=400,
-                detail="YouTube Short posts require the 'youtube' platform.",
+                detail="youtube_post_type is required when publishing to YouTube. Supported values are 'short' or 'long_form'.",
             )
-    else:  # "youtube_long" – future support, keep original behaviour
-        allowed_platforms = requested_platforms
 
-    # Use the filtered list for the rest of the flow
-    for platform in allowed_platforms:
-
+    # 3. Iterate requested platforms
+    for platform in payload.platforms:
         p_clean = platform.lower().strip()
         adapter = ADAPTERS.get(p_clean)
         if adapter:
@@ -122,12 +112,17 @@ async def publish_post_endpoint(payload: PublishRequest):
                     platform_dry_run = False
                     logger.info("[Publishing] Pinterest sandbox token detected. Enforcing live API dispatch (dry_run=False).")
 
+            extra_kwargs: Dict[str, Any] = {}
+            if p_clean == "youtube":
+                extra_kwargs["youtube_post_type"] = payload.youtube_post_type
+
             result = await adapter.publish_post(
                 content=content,
                 media_url=media_url,
                 dry_run=platform_dry_run,
                 title=payload.title,
                 board_id=payload.board_id,
+                **extra_kwargs,
             )
             results.append(result)
             logger.info(
