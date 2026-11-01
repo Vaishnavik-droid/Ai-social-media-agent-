@@ -58,22 +58,16 @@ def _get_supabase_admin():
 def resolve_identifier_to_email(identifier: str) -> str:
     """
     Resolves a supplied username or email to the authoritative registered email.
-    Recognizes 'vaishnavi' and maps it to the existing confirmed Supabase account.
+    Recognizes 'vaishnavi' and maps it to the existing confirmed Supabase account:
+    vaishnavikolekar2023@gmail.com (Auth UID: 88782b79-1b78-4e79-b3ab-294e179b3274).
     """
     clean_id = identifier.strip()
 
-    # 1. Primary alias mapping for the existing account
-    clean_lower = clean_id.lower()
-    if clean_lower in ("vaishnavi", "vaishnavi pandurang kolekar"):
-        return "kolekarvaishnavi77@gmail.com"
-    
-    # Map previous unconfirmed email to the confirmed active account
-    if clean_lower == "vaishnavikolekar2023@gmail.com":
-        return "kolekarvaishnavi77@gmail.com"
-
-    # If it is already an email address, return as-is
+    # 1. If it is already an email address, NEVER rewrite it — return as-is immediately!
     if "@" in clean_id:
         return clean_id
+
+    clean_lower = clean_id.lower()
 
     # 2. Database resolution via public.profiles table
     admin = _get_supabase_admin()
@@ -90,6 +84,12 @@ def resolve_identifier_to_email(identifier: str) -> str:
                 return res2.data[0]["email"]
         except Exception as e:
             logger.warning(f"Database username resolution error for '{clean_id}': {e}")
+
+    # 3. Authoritative aliases for single-user accounts
+    if clean_lower in ("vaishnavi", "vaishnavik"):
+        return "vaishnavikolekar2023@gmail.com"
+    if clean_lower in ("vaishnavi_pk", "vaishnavi pandurang kolekar"):
+        return "kolekarvaishnavi77@gmail.com"
 
     # Fallback to identifier
     return clean_id

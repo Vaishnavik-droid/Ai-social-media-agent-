@@ -19,23 +19,27 @@ def test_username_resolution_vaishnavi():
     """Verify that 'vaishnavi' and aliases resolve to the active confirmed email."""
     # 1. Exact username
     resolved_1 = resolve_identifier_to_email("vaishnavi")
-    assert resolved_1 == "kolekarvaishnavi77@gmail.com"
+    assert resolved_1 == "vaishnavikolekar2023@gmail.com"
 
     # 2. Case-insensitive
     resolved_2 = resolve_identifier_to_email("Vaishnavi")
-    assert resolved_2 == "kolekarvaishnavi77@gmail.com"
+    assert resolved_2 == "vaishnavikolekar2023@gmail.com"
 
-    # 3. Full name variant
-    resolved_3 = resolve_identifier_to_email("vaishnavi pandurang kolekar")
-    assert resolved_3 == "kolekarvaishnavi77@gmail.com"
+    # 3. Direct email preservation
+    resolved_3 = resolve_identifier_to_email("vaishnavikolekar2023@gmail.com")
+    assert resolved_3 == "vaishnavikolekar2023@gmail.com"
 
-    # 4. Previous registered email alias
-    resolved_4 = resolve_identifier_to_email("vaishnavikolekar2023@gmail.com")
+    # 4. Secondary profile alias
+    resolved_4 = resolve_identifier_to_email("vaishnavi_pk")
     assert resolved_4 == "kolekarvaishnavi77@gmail.com"
 
-    # 5. Direct confirmed email
-    resolved_5 = resolve_identifier_to_email("kolekarvaishnavi77@gmail.com")
+    # 5. Full name variant for secondary profile
+    resolved_5 = resolve_identifier_to_email("vaishnavi pandurang kolekar")
     assert resolved_5 == "kolekarvaishnavi77@gmail.com"
+
+    # 6. Secondary profile direct email
+    resolved_6 = resolve_identifier_to_email("kolekarvaishnavi77@gmail.com")
+    assert resolved_6 == "kolekarvaishnavi77@gmail.com"
 
 
 def test_resolve_username_api_endpoint():
@@ -44,7 +48,7 @@ def test_resolve_username_api_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert data["success"] is True
-    assert data["resolved_email"] == "kolekarvaishnavi77@gmail.com"
+    assert data["resolved_email"] == "vaishnavikolekar2023@gmail.com"
     assert data["username"] == "vaishnavi"
 
 

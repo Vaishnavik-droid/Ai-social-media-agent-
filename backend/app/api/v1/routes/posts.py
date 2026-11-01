@@ -39,14 +39,23 @@ def get_default_user_id() -> str:
     client = _get_supabase_client()
     if client:
         try:
-            res = client.table("profiles").select("id").limit(1).execute()
+            # Look up profile for vaishnavi / vaishnavikolekar2023@gmail.com
+            res = client.table("profiles").select("id").eq("username", "vaishnavi").limit(1).execute()
             if res.data and len(res.data) > 0:
                 _DEFAULT_USER_ID = str(res.data[0]["id"])
                 return _DEFAULT_USER_ID
+            res_email = client.table("profiles").select("id").eq("email", "vaishnavikolekar2023@gmail.com").limit(1).execute()
+            if res_email.data and len(res_email.data) > 0:
+                _DEFAULT_USER_ID = str(res_email.data[0]["id"])
+                return _DEFAULT_USER_ID
+            res_any = client.table("profiles").select("id").limit(1).execute()
+            if res_any.data and len(res_any.data) > 0:
+                _DEFAULT_USER_ID = str(res_any.data[0]["id"])
+                return _DEFAULT_USER_ID
         except Exception:
             pass
-    # Authoritative single-user ID for vaishnavi (confirmed in auth.users and public.profiles)
-    return "8940f3fd-a4e8-4fcf-95dd-ef112a691d37"
+    # Authoritative single-user ID for vaishnavi (vaishnavikolekar2023@gmail.com)
+    return "88782b79-1b78-4e79-b3ab-294e179b3274"
 
 
 def extract_user_id(token: Optional[str] = None) -> str:

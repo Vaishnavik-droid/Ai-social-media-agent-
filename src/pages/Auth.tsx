@@ -126,7 +126,7 @@ export const Auth: React.FC<AuthProps> = ({
     setSuccessMessage(null);
 
     const inputIdentifier = email.trim();
-    if (!inputIdentifier || !password.trim()) {
+    if (!inputIdentifier || !password) {
       setErrorMessage('Please enter your email or username and password.');
       return;
     }
@@ -139,85 +139,79 @@ export const Auth: React.FC<AuthProps> = ({
     setIsLoading(true);
 
     try {
-      // 1. Authenticate via backend resolver and official Supabase Gotrue password flow
-      try {
-        const authRes = await api.login(inputIdentifier, password);
-        if (authRes?.success && authRes.access_token) {
-          // Establish the legitimate Supabase session in the browser client
-          await supabase.auth.setSession({
-            access_token: authRes.access_token,
-            refresh_token: authRes.refresh_token,
-          });
-
-          setIsLoading(false);
-          setSuccessMessage('Successfully signed in!');
-          setTimeout(() => {
-            onLoginSuccess({
-              name: authRes.user.full_name || inputIdentifier,
-              email: authRes.user.email,
-              avatarChar: authRes.user.avatar_char || 'V',
-              brandName: authRes.user.brand_name || 'OmniPulse Media',
-              role: 'Growth Strategist',
-            });
-          }, 300);
-          return;
-        }
-      } catch (backendErr: any) {
-        const errDetail = backendErr?.message || '';
-
-        // If backend returned 401/403 or specific auth validation messages, display cleanly
-        if (
-          errDetail.includes('Invalid login credentials') ||
-          errDetail.includes('Email confirmation is required') ||
-          errDetail.includes('401') ||
-          errDetail.includes('403')
-        ) {
-          setIsLoading(false);
-          setErrorMessage(errDetail.replace(/HTTP \d+:\s*/, ''));
-          return;
-        }
-
-        // If backend was unreachable and input is an email, attempt direct Supabase client fallback
-        if (inputIdentifier.includes('@')) {
+      if (inputIdentifier.includes('@')) {
+        // Direct email login via standard Supabase Gotrue signInWithPassword
+        try {
           const { data, error } = await supabase.auth.signInWithPassword({
             email: inputIdentifier,
-            password: password.trim()
+            password: password,
           });
 
           if (error) {
-            setIsLoading(false);
-            setErrorMessage(error.message);
-            return;
+            // If it's invalid credentials or email unconfirmed, report directly
+            if (
+              error.message.includes('Invalid login credentials') ||
+              error.message.includes('Email not confirmed')
+            ) {
+              setIsLoading(false);
+              setErrorMessage(error.message);
+              return;
+            }
+            // If network / other error, fallback to backend proxy below
+            throw error;
           }
 
           if (data?.user && data?.session) {
             setIsLoading(false);
             const meta = data.user.user_metadata || {};
             const displayName = meta.full_name || inputIdentifier.split('@')[0];
-            const userAvatar = displayName.charAt(0).toUpperCase() || 'U';
+            const userAvatar = displayName.charAt(0).toUpperCase() || 'V';
             const brandName = meta.brand_name || 'OmniPulse Media';
 
-            setSuccessMessage('Successfully signed in with Supabase!');
+            setSuccessMessage('Successfully signed in!');
             setTimeout(() => {
               onLoginSuccess({
                 name: displayName,
                 email: data.user.email || inputIdentifier,
                 avatarChar: userAvatar,
                 brandName: brandName,
-                role: 'Growth Strategist'
+                role: 'Growth Strategist',
               });
             }, 300);
             return;
           }
+        } catch (clientErr: any) {
+          // If direct client attempt failed due to network, try backend login
+          console.warn('Direct Supabase sign-in failed, attempting backend auth:', clientErr);
         }
+      }
+
+      // Username resolution & authentication (or fallback for email) via backend
+      const authRes = await api.login(inputIdentifier, password);
+      if (authRes?.success && authRes.access_token) {
+        // Establish the legitimate Supabase session in the browser client
+        await supabase.auth.setSession({
+          access_token: authRes.access_token,
+          refresh_token: authRes.refresh_token,
+        });
 
         setIsLoading(false);
-        setErrorMessage(errDetail || 'Authentication failed. Please verify your credentials.');
+        setSuccessMessage('Successfully signed in!');
+        setTimeout(() => {
+          onLoginSuccess({
+            name: authRes.user.full_name || inputIdentifier,
+            email: authRes.user.email,
+            avatarChar: authRes.user.avatar_char || 'V',
+            brandName: authRes.user.brand_name || 'OmniPulse Media',
+            role: 'Growth Strategist',
+          });
+        }, 300);
         return;
       }
     } catch (err: any) {
       setIsLoading(false);
-      setErrorMessage(err?.message || 'Authentication error occurred.');
+      const errDetail = err?.message || 'Invalid login credentials. Please check your username/email and password.';
+      setErrorMessage(errDetail.replace(/HTTP \d+:\s*/, ''));
     }
   };
 
