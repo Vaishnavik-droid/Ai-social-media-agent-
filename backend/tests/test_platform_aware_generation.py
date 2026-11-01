@@ -12,19 +12,19 @@ import json
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from backend.app.core.platform_constraints import (
+from app.core.platform_constraints import (
     count_graphemes,
     count_bytes,
     validate_platform_content,
     get_content_length,
     PLATFORM_CONSTRAINTS,
 )
-from backend.app.schemas.generation import (
+from app.schemas.generation import (
     GeneratePreviewRequest,
     GeneratePreviewResponse,
     PlatformContentVariant,
 )
-from backend.app.services.groq_service import GroqService
+from app.services.groq_service import GroqService
 
 
 # ============================================================================
@@ -323,7 +323,7 @@ def test_publish_request_schema_variant_mapping():
     """
     Verify PublishRequest schema correctly accepts and structures platform_content and variants.
     """
-    from backend.app.schemas.publishing import PublishRequest
+    from app.schemas.publishing import PublishRequest
 
     req = PublishRequest(
         post_id="post-abc-123",
@@ -349,3 +349,106 @@ def test_publish_request_schema_variant_mapping():
     assert req.platform_content["bluesky"]["content"] == "Specific Bluesky post under 300 graphemes 🦋"
     assert req.platform_content["linkedin"]["title"] == "Specific LinkedIn Insight Title"
     assert req.platform_content["instagram"]["content"] == "Instagram visual caption with emojis ✨🚀 #Growth"
+
+
+# ============================================================================
+# 6. Comprehensive Platform Combination & Serialization Audit
+# ============================================================================
+
+@pytest.mark.parametrize(
+    "combo_name,platforms",
+    [
+        ("1. Bluesky only", ["bluesky"]),
+        ("2. LinkedIn only", ["linkedin"]),
+        ("3. Instagram only", ["instagram"]),
+        ("4. Facebook only", ["facebook"]),
+        ("5. Pinterest only", ["pinterest"]),
+        ("6. Bluesky + LinkedIn", ["bluesky", "linkedin"]),
+        ("7. Bluesky + LinkedIn + Instagram", ["bluesky", "linkedin", "instagram"]),
+        (
+            "8. All 5 except YouTube (Bluesky, LinkedIn, Instagram, Facebook, Pinterest)",
+            ["bluesky", "linkedin", "instagram", "facebook", "pinterest"],
+        ),
+        (
+            "9. All 6 platforms",
+            ["bluesky", "linkedin", "instagram", "facebook", "pinterest", "youtube"],
+        ),
+    ],
+)
+def test_platform_combinations_content_and_split_safety(combo_name, platforms):
+    """
+    Exhaustively tests all 9 requested platform combinations.
+    Validates:
+    - Exactly the requested platforms are produced (unrequested platforms like YouTube in combo 8 are omitted).
+    - Both 'text' and 'content' fields are populated in PlatformContentVariant.
+    - Title rules are strictly enforced (None for bsky/insta; non-empty string for youtube/pinterest).
+    - Bluesky length strictly <= 300 Unicode graphemes.
+    - JSON serialization conforms to GeneratePreviewResponse and includes both 'text' and 'content'.
+    - String operations such as .split('\\n') succeed on both 'content' and 'text' without undefined/null crash.
+    """
+    groq = GroqService()
+    topic = "The Future of AI in Social Media Marketing"
+
+    variants = groq._synthesize_offline_variants(
+        topic=topic,
+        platforms=platforms,
+        tone="Professional",
+        content_type="General Post",
+        language="English",
+        include_hashtags=True,
+    )
+
+    # 1. Exactly the requested platforms exist
+    assert set(variants.keys()) == set(platforms), f"Mismatch in platforms for {combo_name}"
+
+    # If YouTube was not selected (like in combo 8), verify it is NOT generated
+    if "youtube" not in platforms:
+        assert "youtube" not in variants
+
+    for p in platforms:
+        v = variants[p]
+        # Both text and content must be populated strings
+        assert v.text is not None and len(v.text) > 0, f"Variant text empty for {p}"
+        assert v.content is not None and len(v.content) > 0, f"Variant content empty for {p}"
+        assert v.text == v.content, f"Variant text and content out of sync for {p}"
+
+        # Test frontend split safety (the exact operation that caused the runtime error boundary)
+        lines = v.content.split("\n")
+        assert len(lines) >= 1
+        for line in lines:
+            words = line.split(" ")
+            assert isinstance(words, list)
+
+        # Platform-specific constraint validations
+        if p == "bluesky":
+            assert v.title is None
+            assert count_graphemes(v.text) <= 300
+        elif p == "instagram":
+            assert v.title is None
+        elif p == "pinterest":
+            assert v.title is not None
+            assert len(v.title) <= 100
+            assert len(v.text) <= 500
+        elif p == "youtube":
+            assert v.title is not None
+            assert len(v.title) <= 100
+
+    # 2. Pydantic validation and serialization round-trip
+    response = GeneratePreviewResponse(
+        topic_prompt=topic,
+        content_type="General Post",
+        platform_content=variants,
+        provider="OmniPulse Engine",
+        model="test-model",
+    )
+    dumped = response.model_dump()
+    assert "platform_content" in dumped
+    for p in platforms:
+        plat_dump = dumped["platform_content"][p]
+        assert "text" in plat_dump
+        assert "content" in plat_dump
+        assert plat_dump["text"] == plat_dump["content"]
+        # Frontend consumes plat_dump["content"].split('\n')
+        frontend_content = plat_dump.get("content")
+        assert frontend_content is not None
+        assert isinstance(frontend_content.split("\n"), list)

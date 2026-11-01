@@ -320,13 +320,19 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
   const getActiveVariant = (): { content: string; title?: string; hashtags?: string[] } => {
     if (platformVariants[activePreviewTab]) {
-      return platformVariants[activePreviewTab];
+      const v = platformVariants[activePreviewTab] as any;
+      return {
+        content: v.content || v.text || '',
+        title: v.title,
+        hashtags: v.hashtags || [],
+      };
     }
     return {
-      content: postBody,
+      content: postBody || '',
       title: (activePreviewTab === 'youtube' || activePreviewTab === 'pinterest' || activePreviewTab === 'linkedin')
         ? ''
         : undefined,
+      hashtags: [],
     };
   };
 
@@ -335,7 +341,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       handleSavePreviewEdit();
     } else {
       const current = getActiveVariant();
-      setPreviewDraftText(current.content);
+      setPreviewDraftText(current.content || '');
       setPreviewDraftTitle(current.title || '');
       setIsEditingPreview(true);
       setTimeout(() => {
@@ -348,20 +354,20 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     const current = getActiveVariant();
     const updated = {
       ...current,
-      content: previewDraftText,
+      content: previewDraftText || '',
       ...(FRONTEND_PLATFORM_RULES[activePreviewTab]?.supportsTitle ? { title: previewDraftTitle } : {}),
     };
     setPlatformVariants((prev) => ({
       ...prev,
       [activePreviewTab]: updated,
     }));
-    setPostBody(previewDraftText);
+    setPostBody(previewDraftText || '');
     setIsEditingPreview(false);
   };
 
   const handleCancelPreviewEdit = () => {
     const current = getActiveVariant();
-    setPreviewDraftText(current.content);
+    setPreviewDraftText(current.content || '');
     setPreviewDraftTitle(current.title || '');
     setIsEditingPreview(false);
   };
@@ -371,8 +377,9 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       handleSavePreviewEdit();
     }
     setActivePreviewTab(newPlatform);
-    const target = platformVariants[newPlatform] || { content: postBody, title: '' };
-    setPreviewDraftText(target.content);
+    const target = (platformVariants[newPlatform] || {}) as any;
+    const contentText = target.content || target.text || postBody || '';
+    setPreviewDraftText(contentText);
     setPreviewDraftTitle(target.title || '');
   };
 
@@ -447,31 +454,34 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
       if (res) {
         if (res.platform_content && res.platform_content[platform]) {
-          const v = res.platform_content[platform];
+          const v = res.platform_content[platform] as any;
+          const contentVal = v.content || v.text || '';
           setPlatformVariants((prev) => ({
             ...prev,
             [platform]: {
-              content: v.content,
+              content: contentVal,
               title: v.title,
-              hashtags: v.hashtags,
+              hashtags: v.hashtags || [],
             },
           }));
           if (platform === activePreviewTab) {
-            setPostBody(v.content);
-            setPreviewDraftText(v.content);
+            setPostBody(contentVal);
+            setPreviewDraftText(contentVal);
             if (v.title) setPreviewDraftTitle(v.title);
           }
         } else if (res.generated_text) {
+          const genText = res.generated_text || '';
           setPlatformVariants((prev) => ({
             ...prev,
             [platform]: {
-              content: res.generated_text,
+              content: genText,
               title: res.generated_title,
+              hashtags: [],
             },
           }));
           if (platform === activePreviewTab) {
-            setPostBody(res.generated_text);
-            setPreviewDraftText(res.generated_text);
+            setPostBody(genText);
+            setPreviewDraftText(genText);
             if (res.generated_title) setPreviewDraftTitle(res.generated_title);
           }
         }
@@ -541,22 +551,26 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         if (res.platform_content && Object.keys(res.platform_content).length > 0) {
           const newVariants: Record<string, { content: string; title?: string; hashtags?: string[] }> = {};
           for (const [p, v] of Object.entries(res.platform_content)) {
+            const rawV = v as any;
+            const contentVal = rawV.content || rawV.text || '';
             newVariants[p] = {
-              content: v.content,
-              title: v.title,
-              hashtags: v.hashtags,
+              content: contentVal,
+              title: rawV.title,
+              hashtags: rawV.hashtags || [],
             };
           }
           setPlatformVariants(newVariants);
           const activeVar = newVariants[activePreviewTab] || Object.values(newVariants)[0];
           if (activeVar) {
-            setPostBody(activeVar.content);
-            setPreviewDraftText(activeVar.content);
+            const activeContent = activeVar.content || '';
+            setPostBody(activeContent);
+            setPreviewDraftText(activeContent);
             if (activeVar.title) setPreviewDraftTitle(activeVar.title);
           }
         } else if (res.generated_text) {
-          setPostBody(res.generated_text);
-          setPreviewDraftText(res.generated_text);
+          const genText = res.generated_text || '';
+          setPostBody(genText);
+          setPreviewDraftText(genText);
         }
         setIsGenerating(false);
         return;
@@ -735,7 +749,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       youtubePostType: selectedPlatforms.includes('youtube') && youtubePostType ? youtubePostType : undefined,
       pinterestBoardId: selectedPlatforms.includes('pinterest') && selectedBoardId ? selectedBoardId : undefined,
       platformContent: platformVariants as any,
-      variants: Object.fromEntries(Object.entries(platformVariants).map(([k, v]) => [k, v.content])),
+      variants: Object.fromEntries(Object.entries(platformVariants).map(([k, v]) => [k, (v as any).content || (v as any).text || ''])),
     };
 
     if (status === 'draft') {
@@ -847,7 +861,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         selectedBoardId || undefined,
         selectedPlatforms.includes('youtube') && youtubePostType ? youtubePostType : undefined,
         platformVariants,
-        Object.fromEntries(Object.entries(platformVariants).map(([k, v]) => [k, v.content]))
+        Object.fromEntries(Object.entries(platformVariants).map(([k, v]) => [k, (v as any).content || (v as any).text || '']))
       );
 
       // Step 3: Show results
@@ -883,10 +897,11 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
 
   // Clickable hashtag renderer
-  const renderFormattedText = (text: string) => {
+  const renderFormattedText = (text?: string) => {
+    if (!text) return null;
     const lines = text.split('\n');
     return lines.map((line, idx) => {
-      const words = line.split(' ');
+      const words = (line || '').split(' ');
       return (
         <span key={idx} className="block min-h-[1.25rem]">
           {words.map((word, wIdx) => {
@@ -913,7 +928,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     const rule = FRONTEND_PLATFORM_RULES[activePreviewTab];
 
     if (isEditingPreview) {
-      const counterInfo = formatCounterLabel(activePreviewTab, previewDraftText);
+      const counterInfo = formatCounterLabel(activePreviewTab, previewDraftText || '');
       return (
         <div className="preview-inline-editor">
           {rule?.supportsTitle && (
@@ -978,7 +993,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     }
     return (
       <div className="preview-content-text">
-        {renderFormattedText(currentVariant.content)}
+        {renderFormattedText(currentVariant.content || '')}
       </div>
     );
   };
@@ -1487,7 +1502,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
           <div className="flex items-center gap-2">
             <h3 className="create-post-preview-title">Post Preview</h3>
             {(() => {
-              const info = formatCounterLabel(activePreviewTab, isEditingPreview ? previewDraftText : getActiveVariant().content);
+              const info = formatCounterLabel(activePreviewTab, (isEditingPreview ? previewDraftText : getActiveVariant().content) || '');
               return (
                 <span
                   className={`text-[11px] px-2 py-0.5 rounded font-mono font-medium ${
@@ -1527,7 +1542,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         </div>
 
         {activePreviewTab === 'bluesky' && (() => {
-          const info = formatCounterLabel('bluesky', isEditingPreview ? previewDraftText : getActiveVariant().content);
+          const info = formatCounterLabel('bluesky', (isEditingPreview ? previewDraftText : getActiveVariant().content) || '');
           if (info.isOverLimit) {
             return (
               <div className="mb-3 px-3 py-2 rounded-lg bg-rose-950/60 border border-rose-800/80 text-rose-200 text-xs flex items-center gap-2">

@@ -96,7 +96,6 @@ class CredentialService:
                     "user_id": uid,
                     "platform": p_clean,
                     "handle": handle,
-                    "connected_user": account_id or handle,
                     "status": "connected",
                     "account_id": account_id,
                     "account_name": account_name or handle,
@@ -270,7 +269,7 @@ class CredentialService:
         if client:
             try:
                 res = client.table("platform_connections").select(
-                    "id, platform, handle, connected_user, status, account_id, account_name, token_expires_at, last_verified_at, encrypted_access_token"
+                    "id, platform, handle, status, account_id, account_name, token_expires_at, last_verified_at, encrypted_access_token"
                 ).eq("platform", p_clean).single().execute()
                 if res.data:
                     record = res.data
@@ -300,7 +299,7 @@ class CredentialService:
 
             acc_id = record.get("account_id")
             acc_name = record.get("account_name")
-            user = record.get("connected_user") or record.get("handle")
+            user = record.get("account_name") or record.get("handle") or record.get("account_id") or record.get("connected_user")
             last_v = record.get("last_verified_at")
 
             # Determine granular status and status reason

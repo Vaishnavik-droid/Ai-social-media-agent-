@@ -118,10 +118,10 @@ export const Scheduled: React.FC<ScheduledProps> = ({
                     <td className="scheduled-cell" data-label="Scheduled At">
                       <div className="scheduled-date-stack">
                         <span className="scheduled-date">
-                          {post.scheduledAt ? post.scheduledAt.split(' ').slice(0, 3).join(' ') : post.createdAt.split(' ').slice(0, 3).join(' ')}
+                          {post.scheduledAt ? (post.scheduledAt || '').split(' ').slice(0, 3).join(' ') : (post.createdAt || '').split(' ').slice(0, 3).join(' ')}
                         </span>
                         <span className="scheduled-time">
-                          {post.scheduledAt ? post.scheduledAt.split(' ').slice(3).join(' ') : post.createdAt.split(' ').slice(3).join(' ')}
+                          {post.scheduledAt ? (post.scheduledAt || '').split(' ').slice(3).join(' ') : (post.createdAt || '').split(' ').slice(3).join(' ')}
                         </span>
                       </div>
                     </td>

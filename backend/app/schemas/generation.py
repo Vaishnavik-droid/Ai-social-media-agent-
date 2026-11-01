@@ -1,12 +1,24 @@
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PlatformContentVariant(BaseModel):
-    text: str = Field(..., description="Platform-tailored post content or caption")
+    text: Optional[str] = Field(None, description="Platform-tailored post content or caption")
+    content: Optional[str] = Field(None, description="Platform-tailored post content (alias/mirror of text for frontend compatibility)")
     title: Optional[str] = Field(None, description="Optional title if supported by the platform (e.g. YouTube, Pinterest, LinkedIn)")
     hashtags: List[str] = Field(default_factory=list, description="Extracted or generated hashtags")
     character_count: int = Field(0, description="Length measured in the platform's native unit (e.g. graphemes for Bluesky)")
+
+    @model_validator(mode="after")
+    def sync_text_and_content(self) -> "PlatformContentVariant":
+        if not self.content and self.text:
+            self.content = self.text
+        elif not self.text and self.content:
+            self.text = self.content
+        if not self.text:
+            self.text = ""
+            self.content = ""
+        return self
 
 
 class GeneratePreviewRequest(BaseModel):

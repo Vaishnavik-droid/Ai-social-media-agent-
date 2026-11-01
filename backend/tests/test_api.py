@@ -98,6 +98,40 @@ def test_generation_preview():
     assert "Groq" in data["provider"] or "Synthesizer" in data["provider"]
 
 
+def test_generation_preview_five_platforms_no_youtube():
+    """
+    Exact production failure scenario:
+    User selects all platforms EXCEPT YouTube (Bluesky, LinkedIn, Instagram, Facebook, Pinterest).
+    Verifies that the API response contains valid variants for all 5 platforms,
+    both 'text' and 'content' fields are populated, and YouTube is not included.
+    """
+    req = {
+        "topic": "AI is changing social media marketing",
+        "tone": "Professional",
+        "content_type": "General Post",
+        "language": "English",
+        "include_hashtags": True,
+        "platforms": ["bluesky", "linkedin", "instagram", "facebook", "pinterest"]
+    }
+    res = client.post("/api/v1/generation/preview", json=req)
+    assert res.status_code == 200
+    data = res.json()
+    assert "platform_content" in data
+    plat_content = data["platform_content"]
+    assert len(plat_content) == 5
+    for p in ["bluesky", "linkedin", "instagram", "facebook", "pinterest"]:
+        assert p in plat_content
+        variant = plat_content[p]
+        assert "text" in variant and variant["text"]
+        assert "content" in variant and variant["content"]
+        assert variant["text"] == variant["content"]
+        # Split safety on frontend
+        lines = variant["content"].split("\n")
+        assert len(lines) >= 1
+
+    assert "youtube" not in plat_content
+
+
 def test_connections_endpoints():
     # 1. List connections
     list_res = client.get("/api/v1/connections")

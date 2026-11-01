@@ -302,6 +302,7 @@ class GroqService:
 
             result[p] = PlatformContentVariant(
                 text=text_val,
+                content=text_val,
                 title=title_val,
                 hashtags=hashtags_val,
                 character_count=char_count,
@@ -454,6 +455,7 @@ class GroqService:
 
             variants[p] = PlatformContentVariant(
                 text=text,
+                content=text,
                 title=title,
                 hashtags=hashtags,
                 character_count=char_count,

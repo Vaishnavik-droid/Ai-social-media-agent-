@@ -111,7 +111,7 @@ export const Posts: React.FC<PostsProps> = ({
                 </tr>
               ) : (
                 filteredPosts.map((post) => {
-                  const createdDateParts = post.createdAt.split(/\r?\n/);
+                  const createdDateParts = (post.createdAt || '').split(/\r?\n/);
                   const [dateText, timeText] = createdDateParts;
 
                   return (
