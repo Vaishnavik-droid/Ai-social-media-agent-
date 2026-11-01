@@ -68,3 +68,4 @@ def test_login_invalid_password_returns_401():
     assert res.status_code == 401
     data = res.json()
     assert "Invalid login credentials" in data["detail"]
+

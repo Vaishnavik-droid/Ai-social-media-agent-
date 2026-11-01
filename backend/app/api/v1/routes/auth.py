@@ -203,3 +203,4 @@ async def login_endpoint(payload: LoginRequest):
             avatar_char=avatar_char,
         )
     )
+
