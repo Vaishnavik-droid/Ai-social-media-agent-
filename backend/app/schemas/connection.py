@@ -6,7 +6,8 @@ class ConnectionItem(BaseModel):
     id: str
     name: str
     handle: str
-    status: str  # 'connected' | 'disconnected' | 'error' | 'coming_soon'
+    status: str  # 'connected' | 'disconnected' | 'error' | 'expired' | 'reauth_required' | 'temp_unavailable' | 'coming_soon'
+    status_reason: Optional[str] = None
     connected_user: Optional[str] = None
     connectedUser: Optional[str] = None
     account_id: Optional[str] = None
@@ -67,9 +68,10 @@ class ConnectionVerifyRequest(BaseModel):
 class ConnectionVerifyResponse(BaseModel):
     platform: str
     is_valid: bool
-    status: str  # 'connected' | 'disconnected' | 'error'
+    status: str  # 'connected' | 'disconnected' | 'error' | 'expired' | 'reauth_required' | 'temp_unavailable'
     message: str
     account_name: Optional[str] = None
+    status_reason: Optional[str] = None
 
 
 class ConnectionDisconnectResponse(BaseModel):

@@ -126,32 +126,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Settings</span>
             </button>
           </div>
-
-          {/* Legal Compliance Quick Links */}
-          <div className="mt-3 pt-2 px-3 flex items-center justify-between text-[11px] text-slate-400">
-            <button
-              type="button"
-              onClick={() => {
-                onNavigate('privacy');
-                if (onCloseMobile) onCloseMobile();
-              }}
-              className="hover:text-slate-200 transition-colors"
-            >
-              Privacy Policy
-            </button>
-            <span>&bull;</span>
-            <button
-              type="button"
-              onClick={() => {
-                onNavigate('terms');
-                if (onCloseMobile) onCloseMobile();
-              }}
-              className="hover:text-slate-200 transition-colors"
-            >
-              Terms of Service
-            </button>
-          </div>
         </nav>
+
+        {/* Legal Compliance Links - High contrast, clearly readable */}
+        <div className="sidebar-legal-container">
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate('privacy');
+              if (onCloseMobile) onCloseMobile();
+            }}
+            className={`sidebar-legal-link ${currentPage === 'privacy' ? 'sidebar-legal-link-active' : ''}`}
+            aria-label="Privacy Policy"
+          >
+            Privacy Policy
+          </button>
+          <span className="sidebar-legal-divider" aria-hidden="true">•</span>
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate('terms');
+              if (onCloseMobile) onCloseMobile();
+            }}
+            className={`sidebar-legal-link ${currentPage === 'terms' ? 'sidebar-legal-link-active' : ''}`}
+            aria-label="Terms of Service"
+          >
+            Terms of Service
+          </button>
+        </div>
 
         <div className="sidebar-user-bottom">
           <div className="sidebar-avatar-circle">{user.avatarChar}</div>

@@ -182,15 +182,14 @@ class CredentialService:
         """
         p_clean = platform.lower().strip()
 
-        # Remove from in-memory cache
+        # Record explicit disconnected state in memory to override any environment variable fallback
         _MEMORY_CONNECTIONS[p_clean] = {
+            "platform": p_clean,
             "status": "disconnected",
+            "is_configured": False,
             "encrypted_access_token": None,
             "encrypted_refresh_token": None,
-            "handle": "Not Connected",
-            "connected_user": None,
-            "account_id": None,
-            "account_name": None,
+            "handle": None,
         }
 
         client = _get_supabase_client()
@@ -208,9 +207,11 @@ class CredentialService:
         platform: str,
         status: str,
         user_id: Optional[str] = None,
+        reason: Optional[str] = None,
     ) -> bool:
         """
         Updates status and verification timestamp of an existing platform connection record.
+        Preserves encrypted credentials even during transient errors.
         """
         p_clean = platform.lower().strip()
         now_str = self._iso_now()
@@ -218,16 +219,30 @@ class CredentialService:
         if p_clean in _MEMORY_CONNECTIONS:
             _MEMORY_CONNECTIONS[p_clean]["status"] = status
             _MEMORY_CONNECTIONS[p_clean]["last_verified_at"] = now_str
+            if reason:
+                _MEMORY_CONNECTIONS[p_clean]["status_reason"] = reason
 
         client = _get_supabase_client()
         if client:
             try:
-                client.table("platform_connections").update({
+                update_payload = {
                     "status": status,
                     "last_verified_at": now_str,
-                }).eq("platform", p_clean).execute()
+                }
+                client.table("platform_connections").update(update_payload).eq("platform", p_clean).execute()
                 return True
             except Exception as e:
+                err_str = str(e).lower()
+                if "check constraint" in err_str or "violates" in err_str:
+                    try:
+                        client.table("platform_connections").update({
+                            "status": "error",
+                            "last_verified_at": now_str,
+                        }).eq("platform", p_clean).execute()
+                        logger.warning(f"Fallback connection status 'error' persisted for '{p_clean}' pending migration 005: {e}")
+                        return True
+                    except Exception:
+                        pass
                 logger.error(f"Failed to update connection status in Supabase: {e}")
                 return False
         return True
@@ -235,6 +250,7 @@ class CredentialService:
     def get_safe_connection_item(self, platform: str) -> Dict[str, Any]:
         """
         Returns safe public connection status for API responses.
+        Prioritizes authoritative Supabase storage over memory cache.
         Contains NO tokens, secrets, or encrypted values.
         """
         p_clean = platform.lower().strip()
@@ -248,79 +264,96 @@ class CredentialService:
         }
         display_name = names.get(p_clean, p_clean.capitalize())
 
-        # 1. Check database or memory record
-        record = _MEMORY_CONNECTIONS.get(p_clean)
+        # 1. Query Supabase directly as authoritative single source of truth
+        record: Optional[Dict[str, Any]] = None
         client = _get_supabase_client()
-        if not record and client:
+        if client:
             try:
-                res = client.table("platform_connections").select("id, platform, handle, connected_user, status, account_id, account_name, last_verified_at").eq("platform", p_clean).single().execute()
+                res = client.table("platform_connections").select(
+                    "id, platform, handle, connected_user, status, account_id, account_name, token_expires_at, last_verified_at, encrypted_access_token"
+                ).eq("platform", p_clean).single().execute()
                 if res.data:
                     record = res.data
                     _MEMORY_CONNECTIONS[p_clean] = record
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Supabase connection lookup notice for '{p_clean}': {e}")
 
-        if record and record.get("status") == "connected":
+        # Fallback to memory store if Supabase returned nothing
+        if not record:
+            record = _MEMORY_CONNECTIONS.get(p_clean)
+
+        if record:
+            raw_status = record.get("status") or "disconnected"
+
+            # Check expiration if token_expires_at is present
+            exp_str = record.get("token_expires_at")
+            is_expired = False
+            if exp_str:
+                try:
+                    exp_dt = datetime.datetime.fromisoformat(str(exp_str).replace("Z", "+00:00"))
+                    if exp_dt.tzinfo is None:
+                        exp_dt = exp_dt.replace(tzinfo=datetime.timezone.utc)
+                    if exp_dt < self._now_utc():
+                        is_expired = True
+                except Exception:
+                    pass
+
             acc_id = record.get("account_id")
             acc_name = record.get("account_name")
             user = record.get("connected_user") or record.get("handle")
             last_v = record.get("last_verified_at")
-            return {
-                "id": p_clean,
-                "name": display_name,
-                "handle": record.get("handle") or "Connected Account",
-                "status": "connected",
-                "connected_user": user,
-                "connectedUser": user,
-                "account_id": acc_id,
-                "accountId": acc_id,
-                "account_name": acc_name,
-                "accountName": acc_name,
-                "last_verified_at": last_v,
-                "lastVerifiedAt": last_v,
-                "is_configured": True,
-                "isConfigured": True,
-            }
 
-        if record and record.get("status") == "error":
-            acc_id = record.get("account_id")
-            acc_name = record.get("account_name")
-            user = record.get("connected_user") or record.get("handle")
-            last_v = record.get("last_verified_at")
-            return {
-                "id": p_clean,
-                "name": display_name,
-                "handle": record.get("handle") or "Connection Error",
-                "status": "error",
-                "connected_user": user,
-                "connectedUser": user,
-                "account_id": acc_id,
-                "accountId": acc_id,
-                "account_name": acc_name,
-                "accountName": acc_name,
-                "last_verified_at": last_v,
-                "lastVerifiedAt": last_v,
-                "is_configured": True,
-                "isConfigured": True,
-            }
+            # Determine granular status and status reason
+            if raw_status == "connected":
+                final_status = "expired" if is_expired else "connected"
+                reason = "Access token has expired. Please reconnect." if is_expired else None
+            elif raw_status in ("expired", "reauth_required", "temp_unavailable", "error"):
+                final_status = raw_status
+                reason = (
+                    "Reauthorization required."
+                    if raw_status == "reauth_required"
+                    else ("Verification temporarily unavailable." if raw_status == "temp_unavailable" else "Connection error.")
+                )
+            else:
+                final_status = "disconnected"
+                reason = None
 
-        if record and record.get("status") == "disconnected":
-            return {
-                "id": p_clean,
-                "name": display_name,
-                "handle": "Not Connected",
-                "status": "disconnected",
-                "connected_user": None,
-                "connectedUser": None,
-                "account_id": None,
-                "accountId": None,
-                "account_name": None,
-                "accountName": None,
-                "last_verified_at": None,
-                "lastVerifiedAt": None,
-                "is_configured": False,
-                "isConfigured": False,
-            }
+            if final_status != "disconnected":
+                return {
+                    "id": p_clean,
+                    "name": display_name,
+                    "handle": record.get("handle") or ("Connected Account" if final_status == "connected" else "Connection Needed"),
+                    "status": final_status,
+                    "status_reason": reason,
+                    "connected_user": user,
+                    "connectedUser": user,
+                    "account_id": acc_id,
+                    "accountId": acc_id,
+                    "account_name": acc_name,
+                    "accountName": acc_name,
+                    "last_verified_at": last_v,
+                    "lastVerifiedAt": last_v,
+                    "is_configured": True,
+                    "isConfigured": True,
+                }
+            else:
+                return {
+                    "id": p_clean,
+                    "name": display_name,
+                    "handle": "Not Connected",
+                    "status": "disconnected",
+                    "status_reason": None,
+                    "connected_user": None,
+                    "connectedUser": None,
+                    "account_id": None,
+                    "accountId": None,
+                    "account_name": None,
+                    "accountName": None,
+                    "last_verified_at": None,
+                    "lastVerifiedAt": None,
+                    "is_configured": False,
+                    "isConfigured": False,
+                }
 
         # 2. Check environment variable fallback
         env_configured = False
@@ -340,13 +373,14 @@ class CredentialService:
             if getattr(settings, "PINTEREST_SANDBOX_TOKEN", "") or os.environ.get("PINTEREST_SANDBOX_TOKEN", ""):
                 env_configured = True
                 default_handle = "Pinterest Sandbox"
-                default_user = "Pinterest Sandbox" 
+                default_user = "Pinterest Sandbox"
 
         return {
             "id": p_clean,
             "name": display_name,
             "handle": default_handle if env_configured else "Not Connected",
             "status": "connected" if env_configured else "disconnected",
+            "status_reason": None,
             "connected_user": default_user,
             "connectedUser": default_user,
             "account_id": None,

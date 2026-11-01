@@ -113,56 +113,79 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Authentication state
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    const search = window.location.search;
-    if (search.includes('code=') || search.includes('state=facebook') || search.includes('state=instagram')) {
-      return true;
-    }
-    const saved = localStorage.getItem('ai_social_authenticated');
-    return saved === 'true';
-  });
+  // Authentication state - strictly authorized by Supabase Auth
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [editingDraft, setEditingDraft] = useState<SocialPost | undefined>(undefined);
 
   // Sync session with Supabase on mount and listen to auth events
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const metadata = session.user.user_metadata || {};
-        const fullName = metadata.full_name || session.user.email?.split('@')[0] || 'John Doe';
-        setUser({
-          name: fullName,
-          email: session.user.email || 'user@pulse.ai',
-          avatarChar: fullName.charAt(0).toUpperCase() || 'J',
-          brandName: metadata.brand_name || 'OmniPulse Media',
-          role: metadata.goal === 'agency' ? 'Agency Lead' : metadata.goal === 'creator' ? 'Pro Creator' : 'Growth Strategist'
-        });
-        setIsAuthenticated(true);
-        try {
-          localStorage.setItem('ai_social_authenticated', 'true');
-        } catch {}
-      }
-    });
+    let isMounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
+    async function initAuth() {
+      try {
+        const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+        if (sessionErr || !session?.user) {
+          if (isMounted) {
+            setIsAuthenticated(false);
+            setAuthLoading(false);
+          }
+          return;
+        }
+
+        // Validate token integrity against Supabase Auth service
+        const { data: userData, error: userErr } = await supabase.auth.getUser();
+        if (userErr || !userData?.user) {
+          if (isMounted) {
+            setIsAuthenticated(false);
+            setAuthLoading(false);
+          }
+          return;
+        }
+
+        if (isMounted) {
+          const userObj = userData.user;
+          const metadata = userObj.user_metadata || {};
+          const fullName = metadata.full_name || userObj.email?.split('@')[0] || 'OmniPulse User';
+          setUser({
+            name: fullName,
+            email: userObj.email || 'user@pulse.ai',
+            avatarChar: fullName.charAt(0).toUpperCase() || 'U',
+            brandName: metadata.brand_name || 'OmniPulse Media',
+            role: metadata.goal === 'agency' ? 'Agency Lead' : metadata.goal === 'creator' ? 'Pro Creator' : 'Growth Strategist'
+          });
+          setIsAuthenticated(true);
+          setAuthLoading(false);
+        }
+      } catch {
+        if (isMounted) {
+          setIsAuthenticated(false);
+          setAuthLoading(false);
+        }
+      }
+    }
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        setIsAuthenticated(false);
+      } else if (session?.user) {
         const metadata = session.user.user_metadata || {};
-        const fullName = metadata.full_name || session.user.email?.split('@')[0] || 'John Doe';
+        const fullName = metadata.full_name || session.user.email?.split('@')[0] || 'OmniPulse User';
         setUser({
           name: fullName,
           email: session.user.email || 'user@pulse.ai',
-          avatarChar: fullName.charAt(0).toUpperCase() || 'J',
+          avatarChar: fullName.charAt(0).toUpperCase() || 'U',
           brandName: metadata.brand_name || 'OmniPulse Media',
           role: metadata.goal === 'agency' ? 'Agency Lead' : metadata.goal === 'creator' ? 'Pro Creator' : 'Growth Strategist'
         });
         setIsAuthenticated(true);
-        try {
-          localStorage.setItem('ai_social_authenticated', 'true');
-        } catch {}
       }
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -294,9 +317,6 @@ export const App: React.FC = () => {
   const handleLoginSuccess = (authenticatedUser: UserProfile) => {
     setUser(authenticatedUser);
     setIsAuthenticated(true);
-    try {
-      localStorage.setItem('ai_social_authenticated', 'true');
-    } catch {}
     showToast(`Welcome back, ${authenticatedUser.name}!`);
   };
 
@@ -307,7 +327,6 @@ export const App: React.FC = () => {
       // ignore
     }
     setIsAuthenticated(false);
-    localStorage.removeItem('ai_social_authenticated');
     showToast('You have been signed out.');
   };
 
@@ -648,6 +667,18 @@ export const App: React.FC = () => {
     );
   }
 
+  // If auth session check is still in flight, render minimal dark loader
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400" style={{ background: '#0a0f1d' }}>
+        <div className="flex flex-col items-center gap-3" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+          <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" style={{ width: '32px', height: '32px', border: '3px solid #6d4aff', borderTopColor: 'transparent', borderRadius: '50%' }} />
+          <span className="text-sm font-medium text-slate-300" style={{ color: '#94a3b8', fontSize: '13px' }}>Validating session...</span>
+        </div>
+      </div>
+    );
+  }
+
   // If user is not authenticated, display the Login & Sign Up page
   if (!isAuthenticated) {
     return (
@@ -716,6 +747,8 @@ export const App: React.FC = () => {
               preferences={preferences}
               onPostCreated={handlePostCreated}
               onNavigate={navigateTo}
+              initialPost={editingDraft}
+              onClearEditingDraft={() => setEditingDraft(undefined)}
             />
           )}
 
@@ -726,6 +759,10 @@ export const App: React.FC = () => {
               onPublishNow={handlePublishNow}
               onDeletePost={handleDeletePost}
               onSchedulePost={handleSchedulePost}
+              onEditDraft={(draftPost) => {
+                setEditingDraft(draftPost);
+                navigateTo('create-post');
+              }}
             />
           )}
 

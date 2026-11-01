@@ -138,81 +138,46 @@ export const Auth: React.FC<AuthProps> = ({
     setIsLoading(true);
 
     try {
-      // If email format, authenticate directly with Supabase
-      if (inputEmail.includes('@')) {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: inputEmail,
-          password: password.trim()
-        });
-
-        if (error) {
-          // If login failed on Supabase, check local accounts fallback before showing error
-          const savedAccountsStr = localStorage.getItem('ai_social_accounts');
-          let localMatch = null;
-          if (savedAccountsStr) {
-            try {
-              const accounts = JSON.parse(savedAccountsStr);
-              localMatch = accounts.find((a: any) =>
-                a.email && a.email.toLowerCase() === inputEmail.toLowerCase()
-              );
-            } catch (err) {
-              // ignore
-            }
-          }
-
-          if (localMatch) {
-            setIsLoading(false);
-            onLoginSuccess({
-              name: localMatch.name,
-              email: localMatch.email,
-              avatarChar: localMatch.avatarChar || 'U',
-              brandName: localMatch.brandName || 'OmniPulse Media',
-              role: 'Pro Creator'
-            });
-            return;
-          }
-
-          setIsLoading(false);
-          setErrorMessage(error.message);
-          return;
-        }
-
-        if (data?.user) {
-          setIsLoading(false);
-          const meta = data.user.user_metadata || {};
-          const displayName = meta.full_name || inputEmail.split('@')[0];
-          const userAvatar = displayName.charAt(0).toUpperCase() || 'U';
-          const brandName = meta.brand_name || 'OmniPulse Media';
-          const goal = meta.goal || 'growth';
-
-          setSuccessMessage('Successfully signed in with Supabase!');
-          setTimeout(() => {
-            onLoginSuccess({
-              name: displayName,
-              email: data.user.email || inputEmail,
-              avatarChar: userAvatar,
-              brandName: brandName,
-              role:
-                goal === 'agency'
-                  ? 'Agency Lead'
-                  : goal === 'creator'
-                  ? 'Pro Creator'
-                  : 'Growth Strategist'
-            });
-          }, 400);
-          return;
-        }
-      } else {
-        // Username without @: local development mode
+      if (!inputEmail.includes('@')) {
         setIsLoading(false);
-        const displayName = inputEmail;
-        onLoginSuccess({
-          name: displayName,
-          email: `${displayName.toLowerCase().replace(/[^a-z0-9]/g, '')}@pulse.ai`,
-          avatarChar: displayName.charAt(0).toUpperCase(),
-          brandName: 'OmniPulse Media',
-          role: 'Pro Creator'
-        });
+        setErrorMessage('Please enter a valid email address.');
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: inputEmail,
+        password: password.trim()
+      });
+
+      if (error) {
+        setIsLoading(false);
+        setErrorMessage(error.message);
+        return;
+      }
+
+      if (data?.user) {
+        setIsLoading(false);
+        const meta = data.user.user_metadata || {};
+        const displayName = meta.full_name || inputEmail.split('@')[0];
+        const userAvatar = displayName.charAt(0).toUpperCase() || 'U';
+        const brandName = meta.brand_name || 'OmniPulse Media';
+        const goal = meta.goal || 'growth';
+
+        setSuccessMessage('Successfully signed in with Supabase!');
+        setTimeout(() => {
+          onLoginSuccess({
+            name: displayName,
+            email: data.user.email || inputEmail,
+            avatarChar: userAvatar,
+            brandName: brandName,
+            role:
+              goal === 'agency'
+                ? 'Agency Lead'
+                : goal === 'creator'
+                ? 'Pro Creator'
+                : 'Growth Strategist'
+          });
+        }, 400);
         return;
       }
     } catch (err: any) {

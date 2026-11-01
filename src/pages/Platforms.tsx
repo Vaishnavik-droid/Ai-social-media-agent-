@@ -397,7 +397,11 @@ export const Platforms: React.FC<PlatformsProps> = ({
         {ALL_PLATFORMS.map((def) => {
           const current = platformList.find((item) => item.id === def.id);
           const isConnected = current?.status === 'connected';
+          const isExpired = current?.status === 'expired';
+          const isReauthRequired = current?.status === 'reauth_required';
+          const isTempUnavailable = current?.status === 'temp_unavailable';
           const isError = current?.status === 'error';
+          const isProblematic = isExpired || isReauthRequired || isError;
           const isActionLoading = Boolean(actionLoading[def.id]);
 
           // Clean date formatter
@@ -427,7 +431,7 @@ export const Platforms: React.FC<PlatformsProps> = ({
             <div
               key={def.id}
               className={`platform-card ${
-                isConnected ? 'is-connected' : isError ? 'is-error' : 'is-disconnected'
+                isConnected ? 'is-connected' : isProblematic ? 'is-error' : isTempUnavailable ? 'is-warning' : 'is-disconnected'
               }`}
             >
               <div className="platform-card-main">
@@ -449,6 +453,21 @@ export const Platforms: React.FC<PlatformsProps> = ({
                       <span className="status-pill status-pill-connected" title="Active & ready for publishing">
                         <span className="status-dot green"></span>
                         Connected
+                      </span>
+                    ) : isExpired ? (
+                      <span className="status-pill status-pill-error" title="Access token has expired">
+                        <span className="status-dot amber" style={{ background: '#f59e0b' }}></span>
+                        Token Expired
+                      </span>
+                    ) : isReauthRequired ? (
+                      <span className="status-pill status-pill-error" title="Reauthorization required">
+                        <span className="status-dot orange" style={{ background: '#f97316' }}></span>
+                        Reauth Needed
+                      </span>
+                    ) : isTempUnavailable ? (
+                      <span className="status-pill status-pill-disconnected" title="Service temporarily unavailable">
+                        <span className="status-dot blue" style={{ background: '#38bdf8' }}></span>
+                        Temp Unavailable
                       </span>
                     ) : isError ? (
                       <span className="status-pill status-pill-error" title="Verification error">
@@ -491,13 +510,20 @@ export const Platforms: React.FC<PlatformsProps> = ({
                         )}
                       </div>
                     </div>
-                  ) : isError ? (
+                  ) : isTempUnavailable ? (
+                    <div className="identity-temp-box" style={{ padding: '8px', borderRadius: '6px', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', fontSize: '12px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <Clock size={13} style={{ flexShrink: 0 }} />
+                      <span>{current?.statusReason || current?.status_reason || 'Verification temporarily unavailable. Stored credentials preserved.'}</span>
+                    </div>
+                  ) : isProblematic ? (
                     <div className="identity-error-box">
                       <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
                       <div className="identity-error-text">
-                        <span className="error-title">Account verification failed</span>
+                        <span className="error-title">
+                          {isExpired ? 'Token Expired' : isReauthRequired ? 'Reauthorization Required' : 'Verification Issue'}
+                        </span>
                         <span className="error-subtitle">
-                          {accountIdentifier ? `${accountIdentifier} — ` : ''}credentials are expired or invalid. Reconnect or verify.
+                          {current?.statusReason || current?.status_reason || (accountIdentifier ? `${accountIdentifier} — credentials expired or invalid. Reconnect or verify.` : 'Credentials expired or invalid. Reconnect or verify.')}
                         </span>
                       </div>
                     </div>
@@ -536,7 +562,7 @@ export const Platforms: React.FC<PlatformsProps> = ({
                       <span>Disconnect</span>
                     </button>
                   </div>
-                ) : isError ? (
+                ) : isProblematic ? (
                   <div className="error-btn-group">
                     <button
                       type="button"
@@ -568,6 +594,29 @@ export const Platforms: React.FC<PlatformsProps> = ({
                     >
                       <Key size={13} />
                       <span>Reconnect</span>
+                    </button>
+                  </div>
+                ) : isTempUnavailable ? (
+                  <div className="connected-btn-group">
+                    <button
+                      type="button"
+                      onClick={() => handleRefresh(def.id)}
+                      disabled={isActionLoading}
+                      className="btn-card-verify"
+                      title="Re-verify credentials against platform API"
+                    >
+                      <RefreshCw size={13} className={isActionLoading ? 'animate-spin' : ''} />
+                      <span>{isActionLoading ? 'Retrying...' : 'Retry Verify'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => promptDisconnect(def.id, def.name, accountIdentifier || def.name)}
+                      disabled={isActionLoading}
+                      className="btn-card-disconnect"
+                      title="Disconnect and revoke stored credentials"
+                    >
+                      <LogOut size={13} />
+                      <span>Disconnect</span>
                     </button>
                   </div>
                 ) : (

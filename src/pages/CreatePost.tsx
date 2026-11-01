@@ -20,10 +20,13 @@ import {
   MoreHorizontal,
   ChevronDown,
   Pencil,
+  Plus,
 } from 'lucide-react';
 import { Platform, SocialPost, UserProfile, UserPreferences } from '../types';
 import { PlatformIcon } from '../components/PlatformIcon';
 import { api } from '../lib/api';
+
+const COMPOSER_SESSION_KEY = 'omnipulse_active_composer_session';
 
 interface CreatePostProps {
   user: UserProfile;
@@ -31,6 +34,7 @@ interface CreatePostProps {
   onPostCreated: (post: SocialPost) => void;
   onNavigate: (page: any) => void;
   initialPost?: SocialPost;
+  onClearEditingDraft?: () => void;
 }
 
 export const CreatePost: React.FC<CreatePostProps> = ({
@@ -39,31 +43,64 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   onPostCreated,
   onNavigate,
   initialPost,
+  onClearEditingDraft,
 }) => {
-  const [topic, setTopic] = useState('');
-  const [contentType, setContentType] = useState('General Post');
-  const [tone, setTone] = useState(preferences?.defaultTone || 'Professional');
-  const [language, setLanguage] = useState(preferences?.defaultLanguage || 'English');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([
-    'linkedin',
-    'instagram',
-    'facebook',
-  ]);
-  const [activePreviewTab, setActivePreviewTab] = useState<Platform>('linkedin');
+  // Restore initial composer session from initialPost or localStorage
+  const getInitialSnapshot = () => {
+    if (initialPost) {
+      return {
+        postId: initialPost.id,
+        topic: initialPost.title || '',
+        contentType: initialPost.contentType || 'General Post',
+        tone: initialPost.tone || preferences?.defaultTone || 'Professional',
+        language: initialPost.language || preferences?.defaultLanguage || 'English',
+        selectedPlatforms: initialPost.platforms?.length ? initialPost.platforms : ['linkedin', 'instagram', 'facebook'],
+        activePreviewTab: initialPost.platforms?.[0] || 'linkedin',
+        youtubePostType: initialPost.youtubePostType || '',
+        postBody: initialPost.content || '',
+        mediaUrl: initialPost.mediaUrl || null,
+        uploadedPublicUrl: initialPost.mediaUrl || null,
+        selectedBoardId: (initialPost as any).pinterestBoardId || '',
+      };
+    }
+    try {
+      const saved = localStorage.getItem(COMPOSER_SESSION_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+    return {};
+  };
+
+  const initialSnapshot = getInitialSnapshot();
+
+  const [currentPostId, setCurrentPostId] = useState<string | undefined>(initialSnapshot.postId);
+  const [topic, setTopic] = useState<string>(initialSnapshot.topic || '');
+  const [contentType, setContentType] = useState<string>(initialSnapshot.contentType || 'General Post');
+  const [tone, setTone] = useState<string>(initialSnapshot.tone || preferences?.defaultTone || 'Professional');
+  const [language, setLanguage] = useState<string>(initialSnapshot.language || preferences?.defaultLanguage || 'English');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(
+    initialSnapshot.selectedPlatforms || ['linkedin', 'instagram', 'facebook']
+  );
+  const [activePreviewTab, setActivePreviewTab] = useState<Platform>(
+    initialSnapshot.activePreviewTab || 'linkedin'
+  );
   const [youtubePostType, setYoutubePostType] = useState<'short' | 'long_form' | ''>(
-    initialPost?.youtubePostType || ''
+    initialSnapshot.youtubePostType || ''
   );
 
   // Media preview state
-  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [mediaUrl, setMediaUrl] = useState<string | null>(initialSnapshot.mediaUrl || null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadedPublicUrl, setUploadedPublicUrl] = useState<string | null>(null);
+  const [uploadedPublicUrl, setUploadedPublicUrl] = useState<string | null>(initialSnapshot.uploadedPublicUrl || null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [pinterestBoards, setPinterestBoards] = useState<Array<{ id: string; name: string }>>([]);
-  const [selectedBoardId, setSelectedBoardId] = useState<string>('');
+  const [selectedBoardId, setSelectedBoardId] = useState<string>(initialSnapshot.selectedBoardId || '');
   const [isLoadingBoards, setIsLoadingBoards] = useState(false);
   const [isCreatingBoard, setIsCreatingBoard] = useState(false);
+  const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
 
   const handleCreateBoard = async () => {
     const boardName = prompt('Enter a name for the new Pinterest board:');
@@ -172,8 +209,93 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   const selectedLanguage = getSelectedOption(languageOptions, language);
 
   const [postBody, setPostBody] = useState(
-    'AI in Social Media Marketing is changing the way high-growth creators build audiences. By streamlining production and personalizing distribution, creators can operate with the leverage of an entire media agency. The future belongs to operators who build repeatable, automated publishing workflows. #AIMarketing #SocialMediaStrategy #ContentCreation #Growth'
+    initialSnapshot.postBody !== undefined
+      ? initialSnapshot.postBody
+      : 'AI in Social Media Marketing is changing the way high-growth creators build audiences. By streamlining production and personalizing distribution, creators can operate with the leverage of an entire media agency. The future belongs to operators who build repeatable, automated publishing workflows. #AIMarketing #SocialMediaStrategy #ContentCreation #Growth'
   );
+
+  // Sync state if initialPost changes (e.g., when Edit Draft is clicked in Posts table)
+  useEffect(() => {
+    if (initialPost) {
+      setCurrentPostId(initialPost.id);
+      setTopic(initialPost.title || '');
+      setPostBody(initialPost.content || '');
+      if (initialPost.platforms?.length) setSelectedPlatforms(initialPost.platforms);
+      if (initialPost.youtubePostType) setYoutubePostType(initialPost.youtubePostType);
+      if (initialPost.mediaUrl) {
+        setMediaUrl(initialPost.mediaUrl);
+        setUploadedPublicUrl(initialPost.mediaUrl);
+      }
+      if (initialPost.tone) setTone(initialPost.tone);
+      if (initialPost.contentType) setContentType(initialPost.contentType);
+      if (initialPost.language) setLanguage(initialPost.language);
+      if ((initialPost as any).pinterestBoardId) setSelectedBoardId((initialPost as any).pinterestBoardId);
+    }
+  }, [initialPost]);
+
+  // Debounced Autosave (800ms) to localStorage
+  useEffect(() => {
+    setAutosaveStatus('saving');
+    const timer = setTimeout(() => {
+      try {
+        const snapshot = {
+          postId: currentPostId,
+          topic,
+          contentType,
+          tone,
+          language,
+          selectedPlatforms,
+          activePreviewTab,
+          youtubePostType,
+          postBody,
+          mediaUrl: uploadedPublicUrl || (mediaUrl?.startsWith('http') ? mediaUrl : null),
+          uploadedPublicUrl,
+          selectedBoardId,
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(COMPOSER_SESSION_KEY, JSON.stringify(snapshot));
+        setAutosaveStatus('saved');
+        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      } catch (err) {
+        console.warn('Composer autosave notice:', err);
+        setAutosaveStatus('idle');
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [
+    currentPostId,
+    topic,
+    contentType,
+    tone,
+    language,
+    selectedPlatforms,
+    activePreviewTab,
+    youtubePostType,
+    postBody,
+    mediaUrl,
+    uploadedPublicUrl,
+    selectedBoardId,
+  ]);
+
+  const handleNewPost = () => {
+    if (topic.trim() || postBody.trim()) {
+      const confirmReset = window.confirm('Start a new post? Your current draft session will be reset.');
+      if (!confirmReset) return;
+    }
+    localStorage.removeItem(COMPOSER_SESSION_KEY);
+    setCurrentPostId(undefined);
+    setTopic('');
+    setPostBody('');
+    setMediaUrl(null);
+    setSelectedFile(null);
+    setUploadedPublicUrl(null);
+    setYoutubePostType('');
+    setSelectedBoardId('');
+    setAutosaveStatus('idle');
+    setLastSavedTime(null);
+    if (onClearEditingDraft) onClearEditingDraft();
+  };
 
   const [isEditingPreview, setIsEditingPreview] = useState(false);
   const [previewDraftText, setPreviewDraftText] = useState(postBody);
@@ -644,6 +766,35 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
       {/* Left Form */}
       <div className="create-post-form create-post-panel">
+        {/* Top Session Bar: New Post + Autosave Status */}
+        <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-700/60">
+          <button
+            type="button"
+            onClick={handleNewPost}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-sm"
+            title="Start fresh with a clean composer session"
+          >
+            <Plus size={13} className="text-violet-400" />
+            <span>New Post</span>
+          </button>
+
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            {autosaveStatus === 'saving' ? (
+              <span className="inline-flex items-center gap-1.5 text-violet-300">
+                <RefreshCw size={11} className="animate-spin" />
+                Saving...
+              </span>
+            ) : autosaveStatus === 'saved' ? (
+              <span className="inline-flex items-center gap-1.5 text-emerald-400">
+                <Check size={12} />
+                Saved locally {lastSavedTime ? `at ${lastSavedTime}` : ''}
+              </span>
+            ) : (
+              <span className="text-slate-500 text-[11px]">Draft session active</span>
+            )}
+          </div>
+        </div>
+
         {generationError && (
           <div className="create-post-error-banner mb-4">
             <div className="create-post-error-content">

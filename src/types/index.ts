@@ -9,6 +9,7 @@ export type Platform =
 
 export type PostStatus =
   | 'published'
+  | 'partially_published'
   | 'scheduled'
   | 'draft'
   | 'failed';
@@ -27,19 +28,21 @@ export interface SocialPost {
   contentType?: string;
   language?: string;
   youtubePostType?: 'short' | 'long_form';
+  pinterestBoardId?: string;
 }
 
 export interface ConnectedPlatform {
   id: Platform;
   name: string;
   handle: string;
-  status: 'connected' | 'disconnected' | 'coming_soon' | 'error';
+  status: 'connected' | 'disconnected' | 'coming_soon' | 'error' | 'expired' | 'reauth_required' | 'temp_unavailable';
   connectedUser: string;
   lastVerifiedAt?: string;
   accountId?: string;
   accountName?: string;
   isComingSoon?: boolean;
   isConfigured?: boolean;
+  statusReason?: string;
   appId?: string;
   appSecret?: string;
   accessToken?: string;

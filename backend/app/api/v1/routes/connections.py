@@ -961,94 +961,77 @@ async def verify_connection_body(payload: ConnectionVerifyRequest):
 @router.post("/{platform}/verify", response_model=ConnectionVerifyResponse)
 async def verify_platform_connection(platform: str, payload: Optional[ConnectionVerifyRequest] = None):
     """
-    Verifies an existing connection using stored credentials or environment variables.
+    Verifies an existing connection using stored credentials.
+    Distinguishes connected, expired, reauth_required, temp_unavailable, and disconnected.
+    Never erases credentials on verification failure.
     """
     p_clean = platform.lower().strip()
+    adapter_map = {
+        "bluesky": bluesky_adapter,
+        "linkedin": linkedin_adapter,
+        "facebook": facebook_adapter,
+        "instagram": instagram_adapter,
+        "pinterest": pinterest_adapter,
+        "youtube": youtube_adapter,
+    }
+    adapter = adapter_map.get(p_clean)
+    if not adapter:
+        return ConnectionVerifyResponse(
+            platform=p_clean,
+            is_valid=False,
+            status="disconnected",
+            message=f"Platform '{p_clean}' is not currently supported.",
+        )
 
-    if p_clean == "bluesky":
-        is_valid = await bluesky_adapter.validate_connection()
-        conn = credential_service.get_safe_connection_item("bluesky")
-        status_val = "connected" if is_valid else ("error" if conn.get("status") in ("connected", "error") or conn.get("is_configured") else "disconnected")
-        if status_val in ("connected", "error"):
-            await credential_service.update_connection_status("bluesky", status_val)
+    conn = credential_service.get_safe_connection_item(p_clean)
+    if not conn.get("is_configured"):
         return ConnectionVerifyResponse(
-            platform="bluesky",
-            is_valid=is_valid,
-            status=status_val,
-            message="Bluesky AT Protocol session verified successfully!" if is_valid else "Bluesky session verification failed. Please reconnect.",
-            account_name=conn.get("handle"),
+            platform=p_clean,
+            is_valid=False,
+            status="disconnected",
+            message=f"{conn.get('platform_name', p_clean.capitalize())} is not configured.",
+            account_name=None,
         )
-    elif p_clean == "linkedin":
-        is_valid = await linkedin_adapter.validate_connection()
-        conn = credential_service.get_safe_connection_item("linkedin")
-        status_val = "connected" if is_valid else ("error" if conn.get("status") in ("connected", "error") or conn.get("is_configured") else "disconnected")
-        if status_val in ("connected", "error"):
-            await credential_service.update_connection_status("linkedin", status_val)
+
+    try:
+        is_valid = await adapter.validate_connection()
+    except httpx.RequestError as exc:
+        logger.warning(f"Transient network error validating {p_clean}: {exc}")
         return ConnectionVerifyResponse(
-            platform="linkedin",
-            is_valid=is_valid,
-            status=status_val,
-            message="LinkedIn token verified successfully!" if is_valid else "LinkedIn access token expired or invalid.",
+            platform=p_clean,
+            is_valid=False,
+            status="temp_unavailable",
+            message=f"Verification temporarily unavailable for {conn.get('platform_name', p_clean.capitalize())}. Stored credentials preserved.",
             account_name=conn.get("handle"),
+            status_reason="Network / service timeout",
         )
-    elif p_clean == "facebook":
-        is_valid = await facebook_adapter.validate_connection()
-        conn = credential_service.get_safe_connection_item("facebook")
-        status_val = "connected" if is_valid else ("error" if conn.get("status") in ("connected", "error") or conn.get("is_configured") else "disconnected")
-        if status_val in ("connected", "error"):
-            await credential_service.update_connection_status("facebook", status_val)
-        return ConnectionVerifyResponse(
-            platform="facebook",
-            is_valid=is_valid,
-            status=status_val,
-            message="Facebook Page verified successfully with Meta Graph API!" if is_valid else "Facebook connection verification failed. Please re-authorize.",
-            account_name=conn.get("handle"),
-        )
-    elif p_clean == "instagram":
-        is_valid = await instagram_adapter.validate_connection()
-        conn = credential_service.get_safe_connection_item("instagram")
-        status_val = "connected" if is_valid else ("error" if conn.get("status") in ("connected", "error") or conn.get("is_configured") else "disconnected")
-        if status_val in ("connected", "error"):
-            await credential_service.update_connection_status("instagram", status_val)
-        return ConnectionVerifyResponse(
-            platform="instagram",
-            is_valid=is_valid,
-            status=status_val,
-            message="Instagram Business Account verified successfully!" if is_valid else "Instagram connection verification failed. Please re-authorize.",
-            account_name=conn.get("handle"),
-        )
-    elif p_clean == "pinterest":
-        is_valid = await pinterest_adapter.validate_connection()
-        conn = credential_service.get_safe_connection_item("pinterest")
-        status_val = "connected" if is_valid else ("error" if conn.get("status") in ("connected", "error") or conn.get("is_configured") else "disconnected")
-        if status_val in ("connected", "error"):
-            await credential_service.update_connection_status("pinterest", status_val)
-        return ConnectionVerifyResponse(
-            platform="pinterest",
-            is_valid=is_valid,
-            status=status_val,
-            message="Pinterest account verified successfully!" if is_valid else "Pinterest connection verification failed. Please reconnect.",
-            account_name=conn.get("handle"),
-        )
-    elif p_clean == "youtube":
-        is_valid = await youtube_adapter.validate_connection()
-        conn = credential_service.get_safe_connection_item("youtube")
-        status_val = "connected" if is_valid else ("error" if conn.get("status") in ("connected", "error") or conn.get("is_configured") else "disconnected")
-        if status_val in ("connected", "error"):
-            await credential_service.update_connection_status("youtube", status_val)
-        return ConnectionVerifyResponse(
-            platform="youtube",
-            is_valid=is_valid,
-            status=status_val,
-            message="YouTube channel verified successfully!" if is_valid else "YouTube connection verification failed. Please reconnect.",
-            account_name=conn.get("handle"),
-        )
+    except Exception as exc:
+        logger.error(f"Unexpected error validating {p_clean}: {exc}")
+        is_valid = False
+
+    if is_valid:
+        status_val = "connected"
+        reason = None
+        message = f"{conn.get('platform_name', p_clean.capitalize())} verified successfully!"
+    else:
+        if conn.get("status") == "expired":
+            status_val = "expired"
+            reason = "Access token expired. Please reconnect."
+            message = f"{conn.get('platform_name', p_clean.capitalize())} token has expired. Please re-authenticate."
+        else:
+            status_val = "reauth_required"
+            reason = "Verification rejected by provider"
+            message = f"{conn.get('platform_name', p_clean.capitalize())} authorization required or token invalid. Please reconnect."
+
+    await credential_service.update_connection_status(p_clean, status_val, reason=reason)
 
     return ConnectionVerifyResponse(
-        platform=platform,
-        is_valid=False,
-        status="disconnected",
-        message=f"Platform '{platform}' is not currently supported.",
+        platform=p_clean,
+        is_valid=is_valid,
+        status=status_val,
+        message=message,
+        account_name=conn.get("handle"),
+        status_reason=reason,
     )
 
 

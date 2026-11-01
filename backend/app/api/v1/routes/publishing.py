@@ -99,9 +99,40 @@ async def publish_post_endpoint(payload: PublishRequest):
                 detail="youtube_post_type is required when publishing to YouTube. Supported values are 'short' or 'long_form'.",
             )
 
-    # 3. Iterate requested platforms
+    # 3. Check for existing successful platform dispatches for this post to avoid duplicate posting on retry
+    client = _get_supabase_client()
+    already_published_platforms: Dict[str, Dict[str, Any]] = {}
+    if client:
+        try:
+            prev_rows = client.table("post_platforms").select(
+                "platform, status, published_url, remote_post_url, remote_post_id"
+            ).eq("post_id", db_id).execute()
+            if prev_rows.data:
+                for row in prev_rows.data:
+                    if row.get("status") == "published":
+                        already_published_platforms[row.get("platform", "").lower().strip()] = row
+        except Exception as e:
+            logger.warning(f"Could not check existing post_platforms for duplicate prevention: {e}")
+
+    # 4. Iterate requested platforms
     for platform in payload.platforms:
         p_clean = platform.lower().strip()
+
+        # Prevent duplicate dispatches on retry if this platform already published successfully
+        if p_clean in already_published_platforms:
+            prev = already_published_platforms[p_clean]
+            logger.info(f"[Publishing] Skipping duplicate dispatch to '{p_clean}' (already published for post {db_id}).")
+            results.append(
+                PlatformResult(
+                    platform=p_clean,
+                    status="published",
+                    remote_post_id=prev.get("remote_post_id"),
+                    remote_post_url=prev.get("remote_post_url") or prev.get("published_url"),
+                    is_mock=False,
+                )
+            )
+            continue
+
         adapter = ADAPTERS.get(p_clean)
         if adapter:
             platform_dry_run = global_dry_run
@@ -134,8 +165,6 @@ async def publish_post_endpoint(payload: PublishRequest):
                 result.is_mock,
                 result.error_message,
             )
-            if result.status == "published":
-                any_success = True
         else:
             fail_result = PlatformResult(
                 platform=platform,
@@ -145,17 +174,32 @@ async def publish_post_endpoint(payload: PublishRequest):
             results.append(fail_result)
             logger.warning("[Publishing] No adapter registered for platform: %s", platform)
 
-    # 3. Update status in memory & Supabase
-    overall_status = "published" if any_success else "failed"
+    # 5. Compute overall publishing status across platforms
+    all_success = len(results) > 0 and all(r.status == "published" for r in results)
+    any_success = any(r.status == "published" for r in results)
+
+    if all_success:
+        overall_status = "published"
+    elif any_success:
+        overall_status = "partially_published"
+    else:
+        overall_status = "failed"
+
     if post_data:
         post_data["status"] = overall_status
 
-    client = _get_supabase_client()
     if client:
         try:
             client.table("posts").update({"status": overall_status}).eq("id", db_id).execute()
         except Exception as e:
             logger.error(f"Failed to update post status in Supabase: {e}")
+            if overall_status == "partially_published":
+                try:
+                    # In case migration 005 adding partially_published has not yet run in remote Supabase
+                    client.table("posts").update({"status": "draft"}).eq("id", db_id).execute()
+                    logger.warning(f"Fallback post status 'draft' persisted for post {db_id} pending migration 005.")
+                except Exception:
+                    pass
 
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         for r in results:

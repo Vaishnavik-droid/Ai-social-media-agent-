@@ -7,7 +7,8 @@ import {
   Send,
   Calendar,
   Trash2,
-  Eye
+  Eye,
+  Pencil
 } from 'lucide-react';
 import { SocialPost } from '../types';
 import { PlatformIcon } from '../components/PlatformIcon';
@@ -19,6 +20,7 @@ interface PostsProps {
   onPublishNow: (id: string) => void;
   onDeletePost: (id: string) => void;
   onSchedulePost: (id: string) => void;
+  onEditDraft?: (post: SocialPost) => void;
 }
 
 export const Posts: React.FC<PostsProps> = ({
@@ -26,7 +28,8 @@ export const Posts: React.FC<PostsProps> = ({
   onNavigate,
   onPublishNow,
   onDeletePost,
-  onSchedulePost
+  onSchedulePost,
+  onEditDraft
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -166,6 +169,19 @@ export const Posts: React.FC<PostsProps> = ({
 
                           {openMenuId === post.id && (
                             <div className="posts-menu">
+                              {(post.status === 'draft' || post.status === 'partially_published' || post.status === 'failed') && (
+                                <button
+                                  onClick={() => {
+                                    if (onEditDraft) onEditDraft(post);
+                                    setOpenMenuId(null);
+                                    onNavigate('create-post');
+                                  }}
+                                  className="posts-menu-item posts-menu-item-primary"
+                                >
+                                  <Pencil size={13} />
+                                  <span>Edit Draft</span>
+                                </button>
+                              )}
                               {post.status !== 'published' && (
                                 <button
                                   onClick={() => {

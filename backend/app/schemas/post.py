@@ -14,7 +14,7 @@ class PostCreate(BaseModel):
     contentType: Optional[str] = None
     language: Optional[str] = "English"
     platforms: List[str] = Field(default_factory=list)
-    status: str = Field("draft", pattern="^(draft|published|scheduled|failed)$")
+    status: str = Field("draft", pattern="^(draft|published|partially_published|scheduled|failed)$")
     scheduled_at: Optional[str] = None
     scheduledAt: Optional[str] = None
     created_at: Optional[str] = None

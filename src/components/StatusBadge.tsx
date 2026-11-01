@@ -18,6 +18,16 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className = ''
         </span>
       );
 
+    case 'partially_published':
+      return (
+        <span
+          className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium text-amber-700 bg-amber-100 ${className}`}
+          style={{ backgroundColor: '#fef3c7', color: '#d97706' }}
+        >
+          Partially Published
+        </span>
+      );
+
     case 'scheduled':
       return (
         <span

@@ -111,7 +111,7 @@ export interface PlatformConnection {
   id: string;
   name: string;
   handle: string;
-  status: 'connected' | 'disconnected' | 'error' | 'coming_soon';
+  status: 'connected' | 'disconnected' | 'error' | 'coming_soon' | 'expired' | 'reauth_required' | 'temp_unavailable';
   connectedUser?: string;
   connected_user?: string;
   accountId?: string;
@@ -124,6 +124,8 @@ export interface PlatformConnection {
   is_configured?: boolean;
   isComingSoon?: boolean;
   is_coming_soon?: boolean;
+  statusReason?: string;
+  status_reason?: string;
 }
 
 export function normalizePost(p: any): SocialPost {
@@ -141,6 +143,7 @@ export function normalizePost(p: any): SocialPost {
     contentType: p.contentType || p.content_type || 'General Post',
     language: p.language || 'English',
     youtubePostType: p.youtubePostType || p.youtube_post_type || undefined,
+    pinterestBoardId: p.pinterestBoardId || p.pinterest_board_id || p.board_id || undefined,
   };
 }
 

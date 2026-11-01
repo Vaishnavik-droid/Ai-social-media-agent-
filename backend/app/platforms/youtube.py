@@ -139,21 +139,22 @@ class YouTubeAdapter(BasePlatformAdapter):
                 error_message=f"Unsupported YouTube post type: '{youtube_post_type}'. Supported values are 'short' or 'long_form'.",
             )
 
-        # YouTube strictly requires a video file or video URL
-        if not media_url:
-            return PlatformResult(
-                platform=self.platform_name,
-                status="failed",
-                error_message="YouTube publishing requires a video file (.mp4, .webm). Text-only and image-only uploads are not supported by YouTube.",
-            )
+        # YouTube strictly requires a video file or video URL (enforced for live publishing)
+        if not dry_run:
+            if not media_url:
+                return PlatformResult(
+                    platform=self.platform_name,
+                    status="failed",
+                    error_message="YouTube publishing requires a video file (.mp4, .webm). Text-only and image-only uploads are not supported by YouTube.",
+                )
 
-        lower_media = media_url.lower()
-        if any(lower_media.startswith(p) for p in ("data:image/",)) or any(lower_media.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp")):
-            return PlatformResult(
-                platform=self.platform_name,
-                status="failed",
-                error_message="YouTube publishing requires a video file (.mp4, .webm). Static images are not supported by YouTube.",
-            )
+            lower_media = media_url.lower()
+            if any(lower_media.startswith(p) for p in ("data:image/",)) or any(lower_media.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp")):
+                return PlatformResult(
+                    platform=self.platform_name,
+                    status="failed",
+                    error_message="YouTube publishing requires a video file (.mp4, .webm). Static images are not supported by YouTube.",
+                )
 
         # 2. Dry-Run / Mock Publishing Mode
         if dry_run:
