@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { supabase, testSupabaseConnection } from '../lib/supabase';
+import { api } from '../lib/api';
 
 interface AuthProps {
   onLoginSuccess: (user: UserProfile) => void;
@@ -118,15 +119,15 @@ export const Auth: React.FC<AuthProps> = ({
   const strength = calculatePasswordStrength(password);
 
 
-  // Submit Login with Supabase
+  // Submit Login with Backend Resolver & Supabase Auth
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    const inputEmail = email.trim();
-    if (!inputEmail || !password.trim()) {
-      setErrorMessage('Please enter both your email address and password.');
+    const inputIdentifier = email.trim();
+    if (!inputIdentifier || !password.trim()) {
+      setErrorMessage('Please enter your email or username and password.');
       return;
     }
 
@@ -138,46 +139,80 @@ export const Auth: React.FC<AuthProps> = ({
     setIsLoading(true);
 
     try {
-      if (!inputEmail.includes('@')) {
-        setIsLoading(false);
-        setErrorMessage('Please enter a valid email address.');
-        return;
-      }
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: inputEmail,
-        password: password.trim()
-      });
-
-      if (error) {
-        setIsLoading(false);
-        setErrorMessage(error.message);
-        return;
-      }
-
-      if (data?.user) {
-        setIsLoading(false);
-        const meta = data.user.user_metadata || {};
-        const displayName = meta.full_name || inputEmail.split('@')[0];
-        const userAvatar = displayName.charAt(0).toUpperCase() || 'U';
-        const brandName = meta.brand_name || 'OmniPulse Media';
-        const goal = meta.goal || 'growth';
-
-        setSuccessMessage('Successfully signed in with Supabase!');
-        setTimeout(() => {
-          onLoginSuccess({
-            name: displayName,
-            email: data.user.email || inputEmail,
-            avatarChar: userAvatar,
-            brandName: brandName,
-            role:
-              goal === 'agency'
-                ? 'Agency Lead'
-                : goal === 'creator'
-                ? 'Pro Creator'
-                : 'Growth Strategist'
+      // 1. Authenticate via backend resolver and official Supabase Gotrue password flow
+      try {
+        const authRes = await api.login(inputIdentifier, password);
+        if (authRes?.success && authRes.access_token) {
+          // Establish the legitimate Supabase session in the browser client
+          await supabase.auth.setSession({
+            access_token: authRes.access_token,
+            refresh_token: authRes.refresh_token,
           });
-        }, 400);
+
+          setIsLoading(false);
+          setSuccessMessage('Successfully signed in!');
+          setTimeout(() => {
+            onLoginSuccess({
+              name: authRes.user.full_name || inputIdentifier,
+              email: authRes.user.email,
+              avatarChar: authRes.user.avatar_char || 'V',
+              brandName: authRes.user.brand_name || 'OmniPulse Media',
+              role: 'Growth Strategist',
+            });
+          }, 300);
+          return;
+        }
+      } catch (backendErr: any) {
+        const errDetail = backendErr?.message || '';
+
+        // If backend returned 401/403 or specific auth validation messages, display cleanly
+        if (
+          errDetail.includes('Invalid login credentials') ||
+          errDetail.includes('Email confirmation is required') ||
+          errDetail.includes('401') ||
+          errDetail.includes('403')
+        ) {
+          setIsLoading(false);
+          setErrorMessage(errDetail.replace(/HTTP \d+:\s*/, ''));
+          return;
+        }
+
+        // If backend was unreachable and input is an email, attempt direct Supabase client fallback
+        if (inputIdentifier.includes('@')) {
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: inputIdentifier,
+            password: password.trim()
+          });
+
+          if (error) {
+            setIsLoading(false);
+            setErrorMessage(error.message);
+            return;
+          }
+
+          if (data?.user && data?.session) {
+            setIsLoading(false);
+            const meta = data.user.user_metadata || {};
+            const displayName = meta.full_name || inputIdentifier.split('@')[0];
+            const userAvatar = displayName.charAt(0).toUpperCase() || 'U';
+            const brandName = meta.brand_name || 'OmniPulse Media';
+
+            setSuccessMessage('Successfully signed in with Supabase!');
+            setTimeout(() => {
+              onLoginSuccess({
+                name: displayName,
+                email: data.user.email || inputIdentifier,
+                avatarChar: userAvatar,
+                brandName: brandName,
+                role: 'Growth Strategist'
+              });
+            }, 300);
+            return;
+          }
+        }
+
+        setIsLoading(false);
+        setErrorMessage(errDetail || 'Authentication failed. Please verify your credentials.');
         return;
       }
     } catch (err: any) {

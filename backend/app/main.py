@@ -14,6 +14,7 @@ from app.api.v1.routes.publishing import router as publishing_router
 from app.api.v1.routes.connections import router as connections_router
 from app.api.v1.routes.scheduling import router as scheduling_router
 from app.api.v1.routes.media import router as media_router
+from app.api.v1.routes.auth import router as auth_router
 from app.services.scheduling_service import scheduling_service
 
 logging.basicConfig(
@@ -110,6 +111,7 @@ for api_prefix in ["/api/v1", "/api", "/v1", ""]:
     app.include_router(connections_router, prefix=api_prefix)
     app.include_router(scheduling_router, prefix=api_prefix)
     app.include_router(media_router, prefix=api_prefix)
+    app.include_router(auth_router, prefix=api_prefix)
 
 
 @app.get("/")
@@ -120,4 +122,3 @@ async def root():
         "health": "/health",
         "api_health": "/api/health",
     }
-

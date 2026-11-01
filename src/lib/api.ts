@@ -187,12 +187,46 @@ export interface SchedulerHealth {
   cancelled_jobs: number;
 }
 
+export interface LoginResponse {
+  success: boolean;
+  resolved_email: string;
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  token_type: string;
+  user: {
+    id: string;
+    email: string;
+    full_name: string;
+    username: string;
+    brand_name: string;
+    avatar_char: string;
+  };
+}
+
 export const api = {
   /**
    * Health check to confirm backend is reachable
    */
   async checkHealth(): Promise<{ status: string; groq_configured: boolean }> {
     return fetchWithAuth('/api/health');
+  },
+
+  /**
+   * Authenticate with username or email via FastAPI backend
+   */
+  async login(identifier: string, password: string): Promise<LoginResponse> {
+    return fetchWithAuth('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, password }),
+    });
+  },
+
+  /**
+   * Resolve a username to its registered email
+   */
+  async resolveUsername(username: string): Promise<{ success: boolean; username: string; resolved_email: string }> {
+    return fetchWithAuth(`/api/v1/auth/resolve-username?username=${encodeURIComponent(username)}`);
   },
 
   /**
