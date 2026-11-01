@@ -83,8 +83,34 @@ async def publish_post_endpoint(payload: PublishRequest):
 
     global_dry_run = payload.dry_run or (settings.PUBLISHING_MODE.lower() == "mock")
 
-    # 2. Iterate requested platforms
-    for platform in payload.platforms:
+# ------------------------------------------------------------------
+    # 0️⃣  Post‑type validation & platform filtering
+    # ------------------------------------------------------------------
+    # Normalise platform list
+    requested_platforms = [p.lower().strip() for p in payload.platforms]
+    post_type = getattr(payload, "post_type", "community")
+
+    if post_type == "community":
+        # Community posts are text‑only – exclude YouTube (video‑only)
+        allowed_platforms = [p for p in requested_platforms if p != "youtube"]
+        if "youtube" in requested_platforms:
+            logger.warning(
+                "Community post request included YouTube – it will be ignored."
+            )
+    elif post_type == "youtube_short":
+        # Shorts are video‑only – only allow YouTube
+        allowed_platforms = ["youtube"] if "youtube" in requested_platforms else []
+        if not allowed_platforms:
+            raise HTTPException(
+                status_code=400,
+                detail="YouTube Short posts require the 'youtube' platform.",
+            )
+    else:  # "youtube_long" – future support, keep original behaviour
+        allowed_platforms = requested_platforms
+
+    # Use the filtered list for the rest of the flow
+    for platform in allowed_platforms:
+
         p_clean = platform.lower().strip()
         adapter = ADAPTERS.get(p_clean)
         if adapter:
