@@ -7,6 +7,10 @@ router = APIRouter(prefix="/generation", tags=["Generation"])
 
 @router.post("/preview", response_model=GeneratePreviewResponse)
 async def generate_post_preview(payload: GeneratePreviewRequest):
+    """
+    Generates multi-platform tailored social content using structured JSON contracts.
+    Adapts content specifically to the constraints, formatting, and audience of each requested platform.
+    """
     result = await groq_service.generate_post(
         topic=payload.topic,
         tone=payload.tone or "Professional",
@@ -16,5 +20,8 @@ async def generate_post_preview(payload: GeneratePreviewRequest):
         platforms=payload.platforms,
         audience=payload.audience,
         campaign_objective=payload.campaign_objective,
+        additional_instructions=payload.additional_instructions,
+        current_content=payload.current_content,
+        target_single_platform=payload.target_single_platform,
     )
     return GeneratePreviewResponse(**result)

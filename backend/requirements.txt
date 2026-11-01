@@ -10,3 +10,4 @@ apscheduler>=3.10.4
 cryptography>=42.0.0
 python-multipart>=0.0.9
 pytest>=8.3.0
+grapheme>=0.6.0

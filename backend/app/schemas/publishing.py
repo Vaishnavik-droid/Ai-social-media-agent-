@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -22,6 +22,12 @@ class PublishRequest(BaseModel):
     title: Optional[str] = None
     board_id: Optional[str] = None
     youtube_post_type: Optional[str] = None
+    platform_content: Optional[Dict[str, Any]] = Field(
+        None, description="Platform-specific content variants (text, title, hashtags) keyed by platform"
+    )
+    variants: Optional[Dict[str, str]] = Field(
+        None, description="Simple platform to text mapping for backward compatibility"
+    )
 
 
 class PublishResponse(BaseModel):

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -19,6 +19,15 @@ class PostCreate(BaseModel):
     scheduledAt: Optional[str] = None
     created_at: Optional[str] = None
     createdAt: Optional[str] = None
+    topic_prompt: Optional[str] = None
+    topicPrompt: Optional[str] = None
+    platform_content: Optional[Dict[str, Any]] = None
+    platformContent: Optional[Dict[str, Any]] = None
+    variants: Optional[Dict[str, str]] = None
+    youtube_post_type: Optional[str] = None
+    youtubePostType: Optional[str] = None
+    pinterest_board_id: Optional[str] = None
+    pinterestBoardId: Optional[str] = None
 
     @model_validator(mode="after")
     def unify_aliases(self):
@@ -30,6 +39,14 @@ class PostCreate(BaseModel):
             self.scheduled_at = self.scheduledAt
         if not self.created_at and self.createdAt:
             self.created_at = self.createdAt
+        if not self.topic_prompt and self.topicPrompt:
+            self.topic_prompt = self.topicPrompt
+        if not self.platform_content and self.platformContent:
+            self.platform_content = self.platformContent
+        if not self.youtube_post_type and self.youtubePostType:
+            self.youtube_post_type = self.youtubePostType
+        if not self.pinterest_board_id and self.pinterestBoardId:
+            self.pinterest_board_id = self.pinterestBoardId
         return self
 
 
@@ -47,6 +64,15 @@ class PostUpdate(BaseModel):
     status: Optional[str] = None
     scheduled_at: Optional[str] = None
     scheduledAt: Optional[str] = None
+    topic_prompt: Optional[str] = None
+    topicPrompt: Optional[str] = None
+    platform_content: Optional[Dict[str, Any]] = None
+    platformContent: Optional[Dict[str, Any]] = None
+    variants: Optional[Dict[str, str]] = None
+    youtube_post_type: Optional[str] = None
+    youtubePostType: Optional[str] = None
+    pinterest_board_id: Optional[str] = None
+    pinterestBoardId: Optional[str] = None
 
 
 class PostResponse(BaseModel):
@@ -66,6 +92,15 @@ class PostResponse(BaseModel):
     scheduledAt: Optional[str] = None
     created_at: Optional[str] = None
     createdAt: Optional[str] = None
+    topic_prompt: Optional[str] = None
+    topicPrompt: Optional[str] = None
+    platform_content: Optional[Dict[str, Any]] = None
+    platformContent: Optional[Dict[str, Any]] = None
+    variants: Optional[Dict[str, str]] = None
+    youtube_post_type: Optional[str] = None
+    youtubePostType: Optional[str] = None
+    pinterest_board_id: Optional[str] = None
+    pinterestBoardId: Optional[str] = None
 
     @model_validator(mode="after")
     def populate_camel_and_snake(self):
@@ -88,4 +123,25 @@ class PostResponse(BaseModel):
             self.createdAt = self.created_at
         elif self.createdAt and not self.created_at:
             self.created_at = self.createdAt
+
+        if self.topic_prompt and not self.topicPrompt:
+            self.topicPrompt = self.topic_prompt
+        elif self.topicPrompt and not self.topic_prompt:
+            self.topic_prompt = self.topicPrompt
+
+        if self.platform_content and not self.platformContent:
+            self.platformContent = self.platform_content
+        elif self.platformContent and not self.platform_content:
+            self.platform_content = self.platformContent
+
+        if self.youtube_post_type and not self.youtubePostType:
+            self.youtubePostType = self.youtube_post_type
+        elif self.youtubePostType and not self.youtube_post_type:
+            self.youtube_post_type = self.youtubePostType
+
+        if self.pinterest_board_id and not self.pinterestBoardId:
+            self.pinterestBoardId = self.pinterest_board_id
+        elif self.pinterestBoardId and not self.pinterest_board_id:
+            self.pinterest_board_id = self.pinterestBoardId
+
         return self

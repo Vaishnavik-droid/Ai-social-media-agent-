@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 import httpx
 
 from app.core.config import settings
+from app.core.platform_constraints import count_bytes, count_graphemes
 from app.platforms.base import BasePlatformAdapter
 from app.schemas.publishing import PlatformResult
 
@@ -88,14 +89,22 @@ class BlueskyAdapter(BasePlatformAdapter):
         dry_run: bool = False,
         **kwargs
     ) -> PlatformResult:
-        # 1. Validation & Auto-truncate for Bluesky 300-char limit
-        if len(content) > 300:
+        # 1. Unicode grapheme and UTF-8 byte validation for Bluesky
+        grapheme_count = count_graphemes(content)
+        if grapheme_count > 300:
             return PlatformResult(
                 platform=self.platform_name,
                 status="failed",
-                error_message=f"Post text exceeds Bluesky limit of 300 characters (current: {len(content)}).",
+                error_message=f"Post text exceeds Bluesky limit of 300 characters / Unicode grapheme clusters (current: {grapheme_count}).",
             )
 
+        byte_count = count_bytes(content)
+        if byte_count > 3000:
+            return PlatformResult(
+                platform=self.platform_name,
+                status="failed",
+                error_message=f"Post text exceeds Bluesky AT Protocol limit of 3,000 UTF-8 bytes (current: {byte_count}).",
+            )
 
         # 2. Dry-Run / Mock Publishing Mode
         if dry_run:

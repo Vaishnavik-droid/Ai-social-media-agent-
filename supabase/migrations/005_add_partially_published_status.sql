@@ -39,3 +39,4 @@ BEGIN
         CHECK (status IN ('connected', 'disconnected', 'error', 'expired', 'reauth_required', 'temp_unavailable'));
 
 END $$;
+

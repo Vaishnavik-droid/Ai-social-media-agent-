@@ -25,6 +25,11 @@ import {
 import { Platform, SocialPost, UserProfile, UserPreferences } from '../types';
 import { PlatformIcon } from '../components/PlatformIcon';
 import { api } from '../lib/api';
+import {
+  formatCounterLabel,
+  countPlatformLength,
+  FRONTEND_PLATFORM_RULES,
+} from '../lib/platformConstraints';
 
 const COMPOSER_SESSION_KEY = 'omnipulse_active_composer_session';
 
@@ -48,9 +53,10 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   // Restore initial composer session from initialPost or localStorage
   const getInitialSnapshot = () => {
     if (initialPost) {
+      const rawPlatContent = (initialPost as any).platformContent || (initialPost as any).platform_content;
       return {
         postId: initialPost.id,
-        topic: initialPost.title || '',
+        topic: (initialPost as any).topic_prompt || initialPost.title || '',
         contentType: initialPost.contentType || 'General Post',
         tone: initialPost.tone || preferences?.defaultTone || 'Professional',
         language: initialPost.language || preferences?.defaultLanguage || 'English',
@@ -58,6 +64,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         activePreviewTab: initialPost.platforms?.[0] || 'linkedin',
         youtubePostType: initialPost.youtubePostType || '',
         postBody: initialPost.content || '',
+        platformVariants: rawPlatContent || {},
         mediaUrl: initialPost.mediaUrl || null,
         uploadedPublicUrl: initialPost.mediaUrl || null,
         selectedBoardId: (initialPost as any).pinterestBoardId || '',
@@ -88,6 +95,10 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   const [youtubePostType, setYoutubePostType] = useState<'short' | 'long_form' | ''>(
     initialSnapshot.youtubePostType || ''
   );
+  const [platformVariants, setPlatformVariants] = useState<Record<string, { content: string; title?: string; hashtags?: string[] }>>(
+    initialSnapshot.platformVariants || {}
+  );
+  const [isRegeneratingSingle, setIsRegeneratingSingle] = useState(false);
 
   // Media preview state
   const [mediaUrl, setMediaUrl] = useState<string | null>(initialSnapshot.mediaUrl || null);
@@ -218,8 +229,10 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   useEffect(() => {
     if (initialPost) {
       setCurrentPostId(initialPost.id);
-      setTopic(initialPost.title || '');
+      setTopic((initialPost as any).topic_prompt || initialPost.title || '');
       setPostBody(initialPost.content || '');
+      const rawPlatContent = (initialPost as any).platformContent || (initialPost as any).platform_content;
+      if (rawPlatContent) setPlatformVariants(rawPlatContent);
       if (initialPost.platforms?.length) setSelectedPlatforms(initialPost.platforms);
       if (initialPost.youtubePostType) setYoutubePostType(initialPost.youtubePostType);
       if (initialPost.mediaUrl) {
@@ -248,6 +261,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
           activePreviewTab,
           youtubePostType,
           postBody,
+          platformVariants,
           mediaUrl: uploadedPublicUrl || (mediaUrl?.startsWith('http') ? mediaUrl : null),
           uploadedPublicUrl,
           selectedBoardId,
@@ -273,6 +287,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     activePreviewTab,
     youtubePostType,
     postBody,
+    platformVariants,
     mediaUrl,
     uploadedPublicUrl,
     selectedBoardId,
@@ -287,6 +302,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     setCurrentPostId(undefined);
     setTopic('');
     setPostBody('');
+    setPlatformVariants({});
     setMediaUrl(null);
     setSelectedFile(null);
     setUploadedPublicUrl(null);
@@ -298,15 +314,29 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   };
 
   const [isEditingPreview, setIsEditingPreview] = useState(false);
+  const [previewDraftTitle, setPreviewDraftTitle] = useState('');
   const [previewDraftText, setPreviewDraftText] = useState(postBody);
   const previewTextareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const getActiveVariant = (): { content: string; title?: string; hashtags?: string[] } => {
+    if (platformVariants[activePreviewTab]) {
+      return platformVariants[activePreviewTab];
+    }
+    return {
+      content: postBody,
+      title: (activePreviewTab === 'youtube' || activePreviewTab === 'pinterest' || activePreviewTab === 'linkedin')
+        ? ''
+        : undefined,
+    };
+  };
+
   const handleToggleEdit = () => {
     if (isEditingPreview) {
-      setPostBody(previewDraftText);
-      setIsEditingPreview(false);
+      handleSavePreviewEdit();
     } else {
-      setPreviewDraftText(postBody);
+      const current = getActiveVariant();
+      setPreviewDraftText(current.content);
+      setPreviewDraftTitle(current.title || '');
       setIsEditingPreview(true);
       setTimeout(() => {
         previewTextareaRef.current?.focus();
@@ -315,13 +345,35 @@ export const CreatePost: React.FC<CreatePostProps> = ({
   };
 
   const handleSavePreviewEdit = () => {
+    const current = getActiveVariant();
+    const updated = {
+      ...current,
+      content: previewDraftText,
+      ...(FRONTEND_PLATFORM_RULES[activePreviewTab]?.supportsTitle ? { title: previewDraftTitle } : {}),
+    };
+    setPlatformVariants((prev) => ({
+      ...prev,
+      [activePreviewTab]: updated,
+    }));
     setPostBody(previewDraftText);
     setIsEditingPreview(false);
   };
 
   const handleCancelPreviewEdit = () => {
-    setPreviewDraftText(postBody);
+    const current = getActiveVariant();
+    setPreviewDraftText(current.content);
+    setPreviewDraftTitle(current.title || '');
     setIsEditingPreview(false);
+  };
+
+  const handleSwitchTab = (newPlatform: Platform) => {
+    if (isEditingPreview) {
+      handleSavePreviewEdit();
+    }
+    setActivePreviewTab(newPlatform);
+    const target = platformVariants[newPlatform] || { content: postBody, title: '' };
+    setPreviewDraftText(target.content);
+    setPreviewDraftTitle(target.title || '');
   };
 
 
@@ -374,6 +426,101 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     }
   };
 
+  // AI Single-Platform Regenerator: Regenerates content specifically for one platform without touching others
+  const handleRegenerateSinglePlatform = async (platform: Platform) => {
+    setIsRegeneratingSingle(true);
+    setGenerationError(null);
+    const prompt = topic.trim() || 'AI in Social Media Marketing';
+    const currentVariant = getActiveVariant();
+
+    try {
+      const res = await api.generatePostPreview({
+        topic: prompt,
+        tone,
+        content_type: contentType,
+        language,
+        include_hashtags: preferences?.includeHashtags ?? true,
+        platforms: [platform],
+        target_single_platform: platform,
+        draft_context: currentVariant.content,
+      });
+
+      if (res) {
+        if (res.platform_content && res.platform_content[platform]) {
+          const v = res.platform_content[platform];
+          setPlatformVariants((prev) => ({
+            ...prev,
+            [platform]: {
+              content: v.content,
+              title: v.title,
+              hashtags: v.hashtags,
+            },
+          }));
+          if (platform === activePreviewTab) {
+            setPostBody(v.content);
+            setPreviewDraftText(v.content);
+            if (v.title) setPreviewDraftTitle(v.title);
+          }
+        } else if (res.generated_text) {
+          setPlatformVariants((prev) => ({
+            ...prev,
+            [platform]: {
+              content: res.generated_text,
+              title: res.generated_title,
+            },
+          }));
+          if (platform === activePreviewTab) {
+            setPostBody(res.generated_text);
+            setPreviewDraftText(res.generated_text);
+            if (res.generated_title) setPreviewDraftTitle(res.generated_title);
+          }
+        }
+        setIsRegeneratingSingle(false);
+        return;
+      }
+    } catch (err: any) {
+      console.warn(`Could not regenerate single variant for ${platform}:`, err);
+    }
+
+    // Local single-platform fallback
+    setTimeout(() => {
+      let content = '';
+      let title: string | undefined = undefined;
+      let hashtags: string[] = [];
+
+      if (platform === 'bluesky') {
+        content = `AI is shifting social media workflows from manual drafting to high-leverage curation. Operators who build automated systems move 10x faster. #AIMarketing`;
+      } else if (platform === 'linkedin') {
+        title = `The Strategic Shift: Scaling Social Media with AI`;
+        content = `Most creators think AI is just about writing faster. It is actually about compound leverage.\n\nHere is how leading marketing teams are building advantage:\n• Rapid ideation across multiple angles\n• Tailored distribution per community\n• Systematized review workflows\n\nHow is your organization adapting this quarter? Let's discuss below.`;
+        hashtags = ['#AIMarketing', '#SocialStrategy', '#Productivity'];
+      } else if (platform === 'instagram') {
+        content = `Work smarter, post sharper ✨ The future of social media marketing belongs to creators leveraging AI for speed and authentic storytelling 🚀\n\nWhat is your go-to AI marketing hack? Drop it in the comments! 👇\n\n#AIMarketing #ContentCreation #CreatorEconomy #SocialMediaTips`;
+        hashtags = ['#AIMarketing', '#ContentCreation', '#CreatorEconomy'];
+      } else if (platform === 'facebook') {
+        content = `How is your team using AI tools for your social media content this year?\n\nWe are seeing creators save hours each week while keeping their authentic voice intact.\n\nShare your favorite workflow in the comments below!`;
+      } else if (platform === 'pinterest') {
+        title = `AI Social Media Marketing Blueprint`;
+        content = `Actionable tips and workflows to scale your social media content creation using AI. Save this Pin to upgrade your marketing toolkit today!`;
+        hashtags = ['#SocialMediaTips', '#MarketingInspiration', '#AIMarketing'];
+      } else if (platform === 'youtube') {
+        title = `How AI is Changing Social Media Marketing — 2026 Strategy Guide`;
+        content = `In this video, we break down actionable workflows to harness AI in social media marketing. From concept generation to multi-platform distribution, discover the tools and strategies that drive measurable growth.\n\n🔔 Subscribe for weekly creator strategies\n#AIMarketing #SocialMediaGrowth #ContentCreation`;
+      }
+
+      setPlatformVariants((prev) => ({
+        ...prev,
+        [platform]: { content, title, hashtags },
+      }));
+      if (platform === activePreviewTab) {
+        setPostBody(content);
+        setPreviewDraftText(content);
+        if (title) setPreviewDraftTitle(title);
+      }
+      setIsRegeneratingSingle(false);
+    }, 200);
+  };
+
   // AI Content Generator: Calls FastAPI /api/v1/generation/preview (Groq backend)
   const handleGenerateAI = async () => {
     setIsGenerating(true);
@@ -390,8 +537,27 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         platforms: selectedPlatforms,
       });
 
-      if (res && res.generated_text) {
-        setPostBody(res.generated_text);
+      if (res) {
+        if (res.platform_content && Object.keys(res.platform_content).length > 0) {
+          const newVariants: Record<string, { content: string; title?: string; hashtags?: string[] }> = {};
+          for (const [p, v] of Object.entries(res.platform_content)) {
+            newVariants[p] = {
+              content: v.content,
+              title: v.title,
+              hashtags: v.hashtags,
+            };
+          }
+          setPlatformVariants(newVariants);
+          const activeVar = newVariants[activePreviewTab] || Object.values(newVariants)[0];
+          if (activeVar) {
+            setPostBody(activeVar.content);
+            setPreviewDraftText(activeVar.content);
+            if (activeVar.title) setPreviewDraftTitle(activeVar.title);
+          }
+        } else if (res.generated_text) {
+          setPostBody(res.generated_text);
+          setPreviewDraftText(res.generated_text);
+        }
         setIsGenerating(false);
         return;
       }
@@ -403,30 +569,48 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
     // Offline / Local Synthesis Fallback
     setTimeout(() => {
-      let generated = '';
-      if (language === 'Hindi') {
-        generated = `🚀 ${prompt}\n\nआर्टिफिशियल इंटेलिजेंस (AI) सोशल मीडिया मार्केटिंग और कंटेंट क्रिएशन को एक नए स्तर पर ले जा रहा है। तेज गति, सटीक टार्गेटिंग और पर्सनलाइज्ड स्ट्रेटेजी से बिजनेस को बड़ा फायदा मिल रहा है।\n\nभविष्य उन्हीं का है जो नई तकनीक को प्रभावी ढंग से अपनाते हैं!\n\n#आर्टिफिशियलइंटेलिजेंस #डिजिटलग्रोथ #सोशलमीडियामार्केटिंग #इनोवेशन`;
-      } else if (language === 'Marathi') {
-        generated = `🚀 ${prompt}\n\nआर्टिफिशियल इंटेलिजन्स (AI) मुळे सोशल मीडिया स्ट्रॅटेजी आणि बिझनेस ग्रोथला नवीन गती मिळत आहे। कमी वेळात अचूक आणि प्रभावी कंटेंट पोहोचवणे आता सहज शक्य झाले आहे।\n\nभविष्य तंत्रज्ञानासोबत पुढे जाणाऱ्यांचेच आहे!\n\n#डिजिटलमहाराष्ट्र #व्यवसायवाढ #सोशलमीडिया #इनोव्हेशन`;
-      } else if (language === 'Spanish') {
-        generated = `🚀 ${prompt}\n\nLa inteligencia artificial está transformando radicalmente el marketing en redes sociales: contenido más ágil, estratégico y personalizado.\n\n¡El futuro pertenece a los creadores y marcas que aprovechan la IA de forma efectiva!\n\n#InteligenciaArtificial #MarketingDigital #Estrategia` ;
-      } else if (language === 'French') {
-        generated = `📝 ${prompt}\n\nL'intelligence artificielle redéfinit la création de contenu sur les réseaux sociaux: rapidité, pertinence et personnalisation accrue.\n\nL'avenir appartient aux créateurs audacieux. Qu'en pensez-vous ?\n\n#IA #MarketingDigital #Innovation`;
-      } else if (language === 'German') {
-        generated = `💡 ${prompt}\n\nKünstliche Intelligenz revolutioniert das Social-Media-Marketing durch schnellere Workflows und maßgeschneiderte Inhalte.\n\nDie Zukunft gehört denjenigen, die KI gezielt einsetzen! Was ist Ihre Strategie?\n\n#KI #SocialMediaMarketing #Tech`;
-      } else {
-        if (tone === 'Casual') {
-          generated = `Quick thought on ${prompt.toLowerCase()} 👋:\n\nHonestly, the productivity jump is wild. Instead of spending 3 hours on repetitive drafting, you spend 15 minutes refining high-impact hooks and visuals.\n\nThe real secret? Using AI to brainstorm, then injecting your own authentic perspective.\n\nAre you using AI for your content workflow yet? 😊\n\n#SocialMediaTips #AITools #CreatorEconomy`;
-        } else if (tone === 'Witty') {
-          generated = `Hot take on ${prompt.toLowerCase()} 🔥:\n\nAI won't replace human creators. But creators who use AI will certainly replace creators who don't.\n\nWork smarter, post sharper, and let the algorithm do the heavy lifting.\n\nAgree or disagree? Let's debate in the replies ⚡\n\n#MarketingHumor #TechTrends #Productivity`;
-        } else if (tone === 'Inspiring') {
-          generated = `✨ ${prompt}\n\nWe are witnessing the most significant democratisation of creative leverage in history.\n\nYou no longer need a massive production studio to build a global audience — just a clear vision, relentless consistency, and intelligent tools to amplify your message.\n\nBuild the future today.\n\n#Inspiration #GrowthMindset #Leadership #FutureOfWork`;
-        } else {
-          generated = `AI is changing social media marketing by making content creation faster, smarter and more personalized.\n\nThe future belongs to creators who use AI effectively!\n\n#AIMarketing #SocialMediaStrategy #ContentCreation #Growth`;
+      const fallbackVariants: Record<string, { content: string; title?: string; hashtags?: string[] }> = {};
+
+      for (const p of selectedPlatforms) {
+        if (p === 'bluesky') {
+          fallbackVariants['bluesky'] = {
+            content: `AI is changing social media marketing: faster drafts, sharper angles, and personalized distribution at scale. The leverage is real. #AIMarketing`,
+          };
+        } else if (p === 'linkedin') {
+          fallbackVariants['linkedin'] = {
+            title: `How AI is Transforming Social Media Distribution`,
+            content: `AI is changing social media marketing in ways most agencies are still catching up with.\n\nKey advantages high-growth teams are experiencing:\n1. Accelerated production workflows without sacrificing creative voice.\n2. Iterative angle testing to pinpoint audience resonance.\n3. Personalized messaging tailored for multi-platform distribution.\n\nAre you incorporating AI into your marketing pipeline this quarter? Let's discuss in the comments below.`,
+            hashtags: ['#AIMarketing', '#SocialStrategy', '#Growth', '#Productivity'],
+          };
+        } else if (p === 'instagram') {
+          fallbackVariants['instagram'] = {
+            content: `The modern creator's secret weapon? Leveraging AI for content velocity and deep audience connection 🚀✨\n\nWork smarter, build authentic hooks, and stay ahead of the curve.\n\nDrop your favorite workflow tip below! 👇\n\n#ContentCreator #AIMarketing #DigitalGrowth #SocialStrategy #ModernMarketing`,
+          };
+        } else if (p === 'facebook') {
+          fallbackVariants['facebook'] = {
+            content: `How is your business approaching AI tools for social media marketing this year?\n\nWe're seeing teams save hours each week while building closer relationships with their communities.\n\nWe'd love to hear your thoughts — are you embracing AI tools, or keeping it strictly manual?`,
+          };
+        } else if (p === 'pinterest') {
+          fallbackVariants['pinterest'] = {
+            title: `AI Social Media Marketing Guide & Tips`,
+            content: `Actionable strategies to scale your social media content using intelligent AI workflows. Save this Pin to upgrade your marketing toolkit today!`,
+            hashtags: ['#SocialMediaTips', '#MarketingInspiration', '#AIMarketing'],
+          };
+        } else if (p === 'youtube') {
+          fallbackVariants['youtube'] = {
+            title: `How AI is Revolutionizing Social Media Marketing in 2026`,
+            content: `In this video, we break down actionable workflows to harness AI in social media marketing. From concept generation to multi-platform distribution, discover the tools and strategies that drive measurable growth.\n\n🔔 Subscribe for weekly creator strategies\n#AIMarketing #SocialMediaGrowth #ContentCreation`,
+          };
         }
       }
 
-      setPostBody(generated);
+      setPlatformVariants(fallbackVariants);
+      const activeVar = fallbackVariants[activePreviewTab] || Object.values(fallbackVariants)[0];
+      if (activeVar) {
+        setPostBody(activeVar.content);
+        setPreviewDraftText(activeVar.content);
+        if (activeVar.title) setPreviewDraftTitle(activeVar.title);
+      }
       setIsGenerating(false);
     }, 300);
   };
@@ -523,9 +707,21 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       minute: '2-digit',
     });
 
+    // Pre-publish platform constraint validation
+    for (const p of selectedPlatforms) {
+      const variant = platformVariants[p] || { content: postBody };
+      if (p === 'bluesky') {
+        const count = countPlatformLength('bluesky', variant.content);
+        if (count > 300) {
+          alert(`Bluesky post exceeds the 300 Unicode grapheme cluster limit (${count} / 300 graphemes). Please trim your Bluesky variant before publishing.`);
+          return;
+        }
+      }
+    }
+
     const newPost: SocialPost = {
-      id: `post-${Date.now()}`,
-      title: topic.length > 32 ? topic.slice(0, 29) + '...' : topic || postBody.slice(0, 32),
+      id: currentPostId || `post-${Date.now()}`,
+      title: topic.trim() || 'Untitled Post',
       snippet: postBody.slice(0, 50).replace(/\n/g, ' ') + '...',
       content: postBody,
       platforms: selectedPlatforms,
@@ -537,6 +733,9 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       contentType,
       language,
       youtubePostType: selectedPlatforms.includes('youtube') && youtubePostType ? youtubePostType : undefined,
+      pinterestBoardId: selectedPlatforms.includes('pinterest') && selectedBoardId ? selectedBoardId : undefined,
+      platformContent: platformVariants as any,
+      variants: Object.fromEntries(Object.entries(platformVariants).map(([k, v]) => [k, v.content])),
     };
 
     if (status === 'draft') {
@@ -644,9 +843,11 @@ export const CreatePost: React.FC<CreatePostProps> = ({
         true,
         savedPost.content || postBody,
         effectiveMediaUrl,
-        topic.trim() || undefined,
+        undefined, // Do not pass topic as title; backend extracts platform-specific variant title
         selectedBoardId || undefined,
-        selectedPlatforms.includes('youtube') && youtubePostType ? youtubePostType : undefined
+        selectedPlatforms.includes('youtube') && youtubePostType ? youtubePostType : undefined,
+        platformVariants,
+        Object.fromEntries(Object.entries(platformVariants).map(([k, v]) => [k, v.content]))
       );
 
       // Step 3: Show results
@@ -708,21 +909,50 @@ export const CreatePost: React.FC<CreatePostProps> = ({
 
   // Inline editor / formatted text renderer for preview cards
   const renderPreviewContent = () => {
+    const currentVariant = getActiveVariant();
+    const rule = FRONTEND_PLATFORM_RULES[activePreviewTab];
+
     if (isEditingPreview) {
+      const counterInfo = formatCounterLabel(activePreviewTab, previewDraftText);
       return (
         <div className="preview-inline-editor">
+          {rule?.supportsTitle && (
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '3px' }}>
+                {activePreviewTab === 'youtube' ? 'Video Title' : activePreviewTab === 'pinterest' ? 'Pin Title' : 'Title'}
+              </label>
+              <input
+                type="text"
+                value={previewDraftTitle}
+                onChange={(e) => setPreviewDraftTitle(e.target.value)}
+                maxLength={rule.maxTitleLength || 100}
+                placeholder="Enter catchy title..."
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  fontSize: '13px',
+                  borderRadius: '6px',
+                  border: '1px solid #334155',
+                  background: '#0f172a',
+                  color: '#f8fafc',
+                  marginBottom: '4px',
+                  outline: 'none',
+                }}
+              />
+            </div>
+          )}
           <textarea
             ref={previewTextareaRef}
             className="preview-inline-textarea"
             value={previewDraftText}
             onChange={(e) => setPreviewDraftText(e.target.value)}
             rows={5}
-            placeholder="Type or edit your post content..."
+            placeholder={`Type or edit your ${rule?.name || ''} post content...`}
             autoFocus
           />
           <div className="preview-inline-actions">
-            <span className="preview-inline-counter">
-              {previewDraftText.length} characters
+            <span className={`preview-inline-counter ${counterInfo.isOverLimit ? 'text-rose-400 font-bold' : ''}`}>
+              {counterInfo.label}
             </span>
             <div className="preview-inline-btn-group">
               <button
@@ -748,7 +978,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
     }
     return (
       <div className="preview-content-text">
-        {renderFormattedText(postBody)}
+        {renderFormattedText(currentVariant.content)}
       </div>
     );
   };
@@ -1254,9 +1484,35 @@ export const CreatePost: React.FC<CreatePostProps> = ({
       {/* Right Column: Platform-Wise Authentic Previews */}
       <div className="create-post-preview create-post-panel">
         <div className="create-post-preview-header">
-          <h3 className="create-post-preview-title">Post Preview</h3>
-          <div className="create-post-preview-header-right">
-            <span className="create-post-preview-format">{activePreviewTab} format</span>
+          <div className="flex items-center gap-2">
+            <h3 className="create-post-preview-title">Post Preview</h3>
+            {(() => {
+              const info = formatCounterLabel(activePreviewTab, isEditingPreview ? previewDraftText : getActiveVariant().content);
+              return (
+                <span
+                  className={`text-[11px] px-2 py-0.5 rounded font-mono font-medium ${
+                    info.isOverLimit
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700'
+                  }`}
+                  title={`${info.count} of ${info.max} ${info.unit}`}
+                >
+                  {info.label}
+                </span>
+              );
+            })()}
+          </div>
+          <div className="create-post-preview-header-right flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleRegenerateSinglePlatform(activePreviewTab)}
+              disabled={isRegeneratingSingle || isGenerating || isPublishing}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-violet-950/50 hover:bg-violet-900/70 text-violet-200 border border-violet-700/60 transition-colors shadow-sm disabled:opacity-50"
+              title={`Regenerate copy specifically for ${FRONTEND_PLATFORM_RULES[activePreviewTab]?.name || activePreviewTab}`}
+            >
+              <Sparkles size={12} className={isRegeneratingSingle ? 'animate-spin text-violet-300' : 'text-violet-300'} />
+              <span>{isRegeneratingSingle ? 'Regenerating...' : `Regenerate for ${FRONTEND_PLATFORM_RULES[activePreviewTab]?.name || activePreviewTab}`}</span>
+            </button>
             <button
               type="button"
               onClick={handleToggleEdit}
@@ -1269,6 +1525,21 @@ export const CreatePost: React.FC<CreatePostProps> = ({
             </button>
           </div>
         </div>
+
+        {activePreviewTab === 'bluesky' && (() => {
+          const info = formatCounterLabel('bluesky', isEditingPreview ? previewDraftText : getActiveVariant().content);
+          if (info.isOverLimit) {
+            return (
+              <div className="mb-3 px-3 py-2 rounded-lg bg-rose-950/60 border border-rose-800/80 text-rose-200 text-xs flex items-center gap-2">
+                <AlertCircle size={14} className="text-rose-400 shrink-0" />
+                <span>
+                  <strong>Bluesky Limit Exceeded:</strong> Content is {info.count} graphemes (maximum is 300). Please trim before publishing.
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         <div className="create-post-tabs">
           {(['bluesky', 'linkedin', 'instagram', 'facebook', 'pinterest', 'youtube'] as Platform[]).map(
@@ -1287,7 +1558,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
                 <button
                   key={platform}
                   type="button"
-                  onClick={() => setActivePreviewTab(platform)}
+                  onClick={() => handleSwitchTab(platform)}
                   className={`create-post-tab ${
                     isActive ? 'create-post-tab-active' : 'create-post-tab-inactive'
                   }`}
@@ -1623,7 +1894,9 @@ export const CreatePost: React.FC<CreatePostProps> = ({
             </div>
 
             <div className="create-post-pinterest-details">
-              <h4 className="create-post-pinterest-title">{topic || user.brandName || 'Untitled Pin'}</h4>
+              <h4 className="create-post-pinterest-title">
+                {getActiveVariant().title || (topic ? `${topic} — Visual Guide` : user.brandName || 'Untitled Pin')}
+              </h4>
               {renderPreviewContent()}
             </div>
 
@@ -1669,7 +1942,7 @@ export const CreatePost: React.FC<CreatePostProps> = ({
             </div>
 
             <h3 className="create-post-youtube-title">
-              {topic || 'AI in Social Media Marketing — Strategic Content Workflows'}
+              {getActiveVariant().title || (topic ? `${topic} — Strategic Overview` : 'Strategic Video Overview')}
             </h3>
 
             <div className="create-post-youtube-channel-row">

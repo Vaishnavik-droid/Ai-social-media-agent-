@@ -14,6 +14,17 @@ export type PostStatus =
   | 'draft'
   | 'failed';
 
+export interface PlatformContentVariant {
+  platform: Platform;
+  content: string;
+  title?: string;
+  description?: string;
+  hashtags?: string[];
+  character_count?: number;
+  length_unit?: 'graphemes' | 'characters';
+  is_valid?: boolean;
+}
+
 export interface SocialPost {
   id: string;
   title: string;
@@ -29,6 +40,8 @@ export interface SocialPost {
   language?: string;
   youtubePostType?: 'short' | 'long_form';
   pinterestBoardId?: string;
+  platformContent?: Record<string, PlatformContentVariant>;
+  variants?: Record<string, string>;
 }
 
 export interface ConnectedPlatform {

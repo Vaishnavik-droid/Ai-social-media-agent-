@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
+from app.core.platform_constraints import validate_platform_content
 from app.platforms.base import BasePlatformAdapter
 from app.platforms.bluesky import bluesky_adapter
 from app.platforms.linkedin import linkedin_adapter
@@ -33,7 +34,7 @@ ADAPTERS: Dict[str, BasePlatformAdapter] = {
 async def publish_post_endpoint(payload: PublishRequest):
     """
     Publish a post to selected social platforms.
-    Routes to real adapters (Bluesky, LinkedIn, Facebook, Instagram, Pinterest, YouTube)
+    Routes each platform to its platform-specific content variant (with validation),
     and records per-platform results.
     Supports dry_run=True for safe testing and simulation.
     """
@@ -53,12 +54,14 @@ async def publish_post_endpoint(payload: PublishRequest):
 
     # Fallback to direct payload content for stateless serverless resiliency
     if not post_data:
-        if payload.content is not None:
+        if payload.content is not None or payload.platform_content or payload.variants:
             post_data = {
                 "id": payload.post_id,
-                "content": payload.content,
+                "content": payload.content or "",
                 "media_url": payload.media_url,
                 "status": "pending",
+                "platform_content": payload.platform_content,
+                "variants": payload.variants,
             }
             _MEMORY_POSTS[payload.post_id] = post_data
             _MEMORY_POSTS[db_id] = post_data
@@ -75,12 +78,13 @@ async def publish_post_endpoint(payload: PublishRequest):
         settings.PUBLISHING_MODE,
     )
 
-    content = payload.content if payload.content is not None else post_data.get("content", "")
+    base_content = payload.content if payload.content is not None else post_data.get("content", "")
     media_url = payload.media_url if payload.media_url is not None else post_data.get("media_url")
 
-    results: List[PlatformResult] = []
-    any_success = False
+    platform_content_map: Dict[str, Any] = payload.platform_content or post_data.get("platform_content") or {}
+    variants_map: Dict[str, str] = payload.variants or post_data.get("variants") or {}
 
+    results: List[PlatformResult] = []
     global_dry_run = payload.dry_run or (settings.PUBLISHING_MODE.lower() == "mock")
 
     # 2. Validate YouTube post type if provided or if YouTube is targeted
@@ -134,38 +138,7 @@ async def publish_post_endpoint(payload: PublishRequest):
             continue
 
         adapter = ADAPTERS.get(p_clean)
-        if adapter:
-            platform_dry_run = global_dry_run
-            # Pinterest Sandbox Override: If PINTEREST_SANDBOX_TOKEN is configured and user did not explicitly request dry_run, enforce live execution
-            if p_clean == "pinterest" and not payload.dry_run:
-                sandbox_token = getattr(settings, "PINTEREST_SANDBOX_TOKEN", None) or os.environ.get("PINTEREST_SANDBOX_TOKEN")
-                if sandbox_token:
-                    platform_dry_run = False
-                    logger.info("[Publishing] Pinterest sandbox token detected. Enforcing live API dispatch (dry_run=False).")
-
-            extra_kwargs: Dict[str, Any] = {}
-            if p_clean == "youtube":
-                extra_kwargs["youtube_post_type"] = payload.youtube_post_type
-
-            result = await adapter.publish_post(
-                content=content,
-                media_url=media_url,
-                dry_run=platform_dry_run,
-                title=payload.title,
-                board_id=payload.board_id,
-                **extra_kwargs,
-            )
-            results.append(result)
-            logger.info(
-                "[Publishing] Platform result for '%s': status=%s, remote_post_id=%s, remote_post_url=%s, is_mock=%s, error=%s",
-                result.platform,
-                result.status,
-                result.remote_post_id,
-                result.remote_post_url,
-                result.is_mock,
-                result.error_message,
-            )
-        else:
+        if not adapter:
             fail_result = PlatformResult(
                 platform=platform,
                 status="failed",
@@ -173,6 +146,66 @@ async def publish_post_endpoint(payload: PublishRequest):
             )
             results.append(fail_result)
             logger.warning("[Publishing] No adapter registered for platform: %s", platform)
+            continue
+
+        # Extract platform-specific variant
+        plat_variant = platform_content_map.get(p_clean) or platform_content_map.get(platform)
+        if isinstance(plat_variant, dict):
+            plat_text = str(plat_variant.get("text") or plat_variant.get("content") or base_content)
+            plat_title = plat_variant.get("title") or payload.title
+        elif isinstance(plat_variant, str):
+            plat_text = plat_variant
+            plat_title = payload.title
+        elif p_clean in variants_map:
+            plat_text = variants_map[p_clean]
+            plat_title = payload.title
+        else:
+            plat_text = base_content
+            plat_title = payload.title
+
+        # Enforce strict pre-publish platform validation (e.g. Bluesky <= 300 graphemes, Pinterest <= 500 chars)
+        is_valid, validation_err = validate_platform_content(p_clean, plat_text, plat_title)
+        if not is_valid:
+            logger.warning(f"[Publishing] Content validation failed for '{p_clean}': {validation_err}")
+            results.append(
+                PlatformResult(
+                    platform=p_clean,
+                    status="failed",
+                    error_message=validation_err,
+                )
+            )
+            continue
+
+        platform_dry_run = global_dry_run
+        # Pinterest Sandbox Override: If PINTEREST_SANDBOX_TOKEN is configured and user did not explicitly request dry_run, enforce live execution
+        if p_clean == "pinterest" and not payload.dry_run:
+            sandbox_token = getattr(settings, "PINTEREST_SANDBOX_TOKEN", None) or os.environ.get("PINTEREST_SANDBOX_TOKEN")
+            if sandbox_token:
+                platform_dry_run = False
+                logger.info("[Publishing] Pinterest sandbox token detected. Enforcing live API dispatch (dry_run=False).")
+
+        extra_kwargs: Dict[str, Any] = {}
+        if p_clean == "youtube":
+            extra_kwargs["youtube_post_type"] = payload.youtube_post_type
+
+        result = await adapter.publish_post(
+            content=plat_text,
+            media_url=media_url,
+            dry_run=platform_dry_run,
+            title=plat_title,
+            board_id=payload.board_id,
+            **extra_kwargs,
+        )
+        results.append(result)
+        logger.info(
+            "[Publishing] Platform result for '%s': status=%s, remote_post_id=%s, remote_post_url=%s, is_mock=%s, error=%s",
+            result.platform,
+            result.status,
+            result.remote_post_id,
+            result.remote_post_url,
+            result.is_mock,
+            result.error_message,
+        )
 
     # 5. Compute overall publishing status across platforms
     all_success = len(results) > 0 and all(r.status == "published" for r in results)
@@ -195,7 +228,6 @@ async def publish_post_endpoint(payload: PublishRequest):
             logger.error(f"Failed to update post status in Supabase: {e}")
             if overall_status == "partially_published":
                 try:
-                    # In case migration 005 adding partially_published has not yet run in remote Supabase
                     client.table("posts").update({"status": "draft"}).eq("id", db_id).execute()
                     logger.warning(f"Fallback post status 'draft' persisted for post {db_id} pending migration 005.")
                 except Exception:
@@ -245,13 +277,6 @@ async def publish_post_endpoint(payload: PublishRequest):
                         fallback_data["published_at"] = now_iso
                     try:
                         client.table("post_platforms").upsert(fallback_data, on_conflict="post_id,platform").execute()
-                        logger.info(
-                            "[Publishing] DB fallback persistence for '%s' (post_id: %s) succeeded: published_url=%s, status=%s",
-                            r.platform,
-                            db_id,
-                            r.remote_post_url,
-                            r.status,
-                        )
                     except Exception as fallback_err:
                         logger.error(f"Failed to upsert post_platform fallback for {r.platform}: {fallback_err}")
                 else:

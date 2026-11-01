@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { SocialPost, Platform } from '../types';
+import { SocialPost, Platform, PlatformContentVariant } from '../types';
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL !== undefined
@@ -82,10 +82,17 @@ export interface GenerationParams {
   language?: string;
   include_hashtags?: boolean;
   platforms?: Platform[];
+  target_single_platform?: Platform;
+  campaign_objective?: string;
+  draft_context?: string;
 }
 
 export interface GenerationResult {
   generated_text: string;
+  topic_prompt?: string;
+  generated_title?: string;
+  platform_content?: Record<string, PlatformContentVariant>;
+  variants?: Record<string, string>;
   tone: string;
   language: string;
   provider: string;
@@ -144,6 +151,8 @@ export function normalizePost(p: any): SocialPost {
     language: p.language || 'English',
     youtubePostType: p.youtubePostType || p.youtube_post_type || undefined,
     pinterestBoardId: p.pinterestBoardId || p.pinterest_board_id || p.board_id || undefined,
+    platformContent: p.platformContent || p.platform_content || undefined,
+    variants: p.variants || undefined,
   };
 }
 
@@ -254,7 +263,9 @@ export const api = {
     mediaUrl?: string,
     title?: string,
     boardId?: string,
-    youtubePostType?: 'short' | 'long_form'
+    youtubePostType?: 'short' | 'long_form',
+    platformContent?: Record<string, any>,
+    variants?: Record<string, string>
   ): Promise<PublishResult> {
     return fetchWithAuth('/api/v1/publishing/publish', {
       method: 'POST',
@@ -267,6 +278,8 @@ export const api = {
         title: title || undefined,
         board_id: boardId || undefined,
         youtube_post_type: youtubePostType || undefined,
+        platform_content: platformContent || undefined,
+        variants: variants || undefined,
       }),
       timeoutMs: 45000,
     });
