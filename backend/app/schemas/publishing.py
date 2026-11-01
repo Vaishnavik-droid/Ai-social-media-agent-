@@ -1,5 +1,4 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional, Literal
 
 
 class PlatformResult(BaseModel):
@@ -21,6 +20,9 @@ class PublishRequest(BaseModel):
     media_url: Optional[str] = None
     title: Optional[str] = None
     board_id: Optional[str] = None
+    # New field to specify what kind of post the user wants
+    post_type: Literal["community", "youtube_short", "youtube_long"] = "community"  # default to community text post
+
 
 
 class PublishResponse(BaseModel):
