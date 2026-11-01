@@ -695,7 +695,7 @@ async def youtube_oauth_callback(
             error_message="Missing authorization code or session state parameter.",
         )
 
-    state_data = await credential_service.get_and_consume_oauth_state(state)
+    state_data = await credential_service.verify_and_consume_oauth_state(state)
     if not state_data:
         return _render_popup_html(
             success=False,
