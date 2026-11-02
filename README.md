@@ -6,6 +6,21 @@ The project combines a React 18 + Vite frontend, a Python FastAPI backend, Supab
 
 > **Important:** This repository contains application code and configuration templates. Never commit real API keys, OAuth secrets, access tokens, app passwords, service-role keys, or encryption keys.
 
+## Project overview
+
+OmniPulse centralizes the social publishing workflow in one application. Users can generate platform-aware content with AI, refine it in the dashboard, connect supported social accounts, upload media, publish immediately, or schedule posts for later delivery.
+
+The frontend provides the workspace for authentication, dashboards, post creation, platform management, scheduled content, settings, and legal pages. The FastAPI backend handles AI generation, API requests, OAuth callbacks, credential verification, encrypted token storage, media uploads, platform-specific publishing, and scheduled job processing.
+
+### Core capabilities
+
+- **Create:** Generate content from a topic, tone, language, content type, campaign objective, and selected platforms.
+- **Customize:** Review platform-specific variants, character limits, hashtags, titles, descriptions, and media requirements before publishing.
+- **Connect:** Authorize Meta, Pinterest, and YouTube with OAuth, or connect Bluesky and LinkedIn with verified credentials.
+- **Publish:** Send one post to multiple connected platforms while recording each platform's result, remote ID, URL, and error state.
+- **Schedule:** Queue posts for future processing through the local scheduler or the protected Vercel Cron endpoint.
+- **Secure:** Keep backend secrets server-side and encrypt stored access and refresh tokens with Fernet before persisting them in Supabase.
+
 ## Features
 
 - AI-assisted post generation through Groq
