@@ -146,3 +146,6 @@ See [VERCEL_DEPLOYMENT.md](VERCEL_DEPLOYMENT.md) for the complete routing, envir
 ## License
 
 This project is distributed under the license in [LICENSE](LICENSE).
+
+<img width="1600" height="810" alt="WhatsApp Image 2026-11-01 at 10 40 20 AM (1)" src="https://github.com/user-attachments/assets/da296532-a763-484f-8e55-c16761b82053" />
+
